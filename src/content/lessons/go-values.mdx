@@ -1,0 +1,216 @@
+import { typesFollowups } from '../go/types';
+
+<section id="copy" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 先拆开三个概念</div>
+
+## “我明明复制了它”，为什么还是串了数据？
+
+服务里有一份用户记录，你复制它、改副本，再把副本送去计算。原记录的分数没动，年龄却变了。这不是 Go 时而值传递、时而引用传递，而是你需要区分三件事：**变量是存放值的位置，值可以是一个指针，指针又能指向另一份数据。**
+
+```go
+type Record struct {
+    Score int
+    Age   *int
+}
+
+age := 20
+a := Record{Score: 10, Age: &age}
+b := a
+b.Score = 99
+*b.Age = 30
+fmt.Println(a.Score, b.Score, *a.Age, *b.Age)
+// 输出：10 99 30 30
+```
+
+`b = a` 复制结构体的字段。整数 `Score` 复制出独立的整数值；指针 `Age` 复制出另一个相同的指针值。于是 `a.Age` 与 `b.Age` 仍指向同一个 `age`。修改 `b.Score` 是改副本字段，执行 `*b.Age = 30` 则是沿着指针改共同的对象。
+
+函数调用也一样：形参是新的变量，得到实参值的副本。给形参重新赋值，不会直接替换调用方变量；但通过形参里的指针修改对象，调用方可能看得见。
+
+<Callout title="“浅拷贝”是解释方式，不是另一种传参机制" kind="fact">
+  数组、结构体、指针、切片、map、函数值和接口值的赋值，都服从各自类型的值语义。切片和 map
+  等值可以共享可达数据，但不能因此称 Go
+  把调用方变量按引用传进了函数。后续小节会分别展开它们的表示和边界。
+</Callout>
+
+<Quiz id="go-values-copy" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 把共享关系画出来</div>
+
+## 改字段，和沿指针改对象，是两条路径。
+
+先复制 `a`，把副本的 `Score` 改成 99，再把副本的 `Age` 指向的值改成 30。随后开启“另分配存储”重做一次。留意：改变的是对象共享关系，并不是 Go 的赋值规则。
+
+<ValueCopyLab />
+
+这里所谓独立复制，只处理了这一个 `Age` 指针。如果真实对象还有切片、map、图结构甚至循环引用，“深拷贝”需要定义所有权、共享策略和循环处理方式。不能用一次 `b := a`，也不能不加说明地用 JSON 编解码来宣称复制了任意对象。
+
+</section>
+
+<section id="types" className="lesson-section">
+
+<div className="section-kicker">03 / 让类型帮你阻止混用</div>
+
+## 底层都是整数，不代表它们就是同一种类型。
+
+用户 ID 与订单 ID 都可能是 `int64`。把它们定义成不同类型，可以减少业务参数混用：
+
+```go
+type UserID int64
+type OrderID int64
+type LegacyUserID = UserID
+
+var user UserID = 42
+var raw int64 = 42
+// user = raw // 编译失败：两边是不同的命名类型
+user = UserID(raw)
+var old LegacyUserID = user // 别名，没有创建新类型
+_ = old
+```
+
+`type UserID int64` 定义新类型；`type LegacyUserID = UserID` 为同一类型引入别名。底层类型参与赋值、转换和泛型约束规则，但不是“只要底层相同就可随意混用”的许可。
+
+这里 `var user UserID = 42` 为什么成立？因为 `42` 是可以由 `UserID` 表示的无类型整数常量。不要把无类型常量和已经拥有 `int64` 类型的变量混为一谈。规范还允许某些“一方不是命名类型”的赋值，接口也有单独的可赋值规则；面试时必须根据具体类型判断。
+
+### 显式转换不是输入校验
+
+```go
+n := 300
+fmt.Println(uint8(n)) // 44：变量的整数转换发生截断
+// var x uint8 = 300  // 编译失败：常量 300 不能由 uint8 表示
+```
+
+转换成功，不代表值符合业务范围。外部输入转成较窄整数前，要做范围检查；转成 `UserID` 后，也不会自动确认用户存在或禁止负数。
+
+<Quiz id="go-types-alias" />
+
+</section>
+
+<section id="zero" className="lesson-section">
+
+<div className="section-kicker">04 / 初始化不是同一个动词</div>
+
+## 零值是已定义的起点，不代表每种操作都可执行。
+
+没有显式初始化的变量得到零值：数值为 0，布尔为 `false`，字符串为 `""`，指针、切片、map、channel、函数与接口的零值为 `nil`。数组和结构体则递归使用元素、字段的零值。
+
+但零值可用到什么程度，取决于类型和操作。例如 nil 切片可以 `append`，nil map 可以读但不能直接写，nil channel 上的发送与接收会一直阻塞。不要从“Go 提供零值”推导出“零值支持一切操作”。
+
+```go
+p := new(int)         // *int，指向一个值为 0 的 int
+s := make([]int, 2, 4) // []int，长度为 2，容量为 4
+q := new([]int)       // *[]int，所指切片的值是 nil
+_ = p
+_ = s
+_ = q
+```
+
+`make` 用于初始化 slice、map、channel 并返回该类型的值；`new(T)` 返回指向 `T` 零值的指针。**这两个内建函数都不是“强制分配到堆”的开关。** 最终分配位置由编译器等实现条件决定，不能看见 `new` 就断言有堆分配。
+
+<Callout title="Go 1.26 起：new 也接受表达式" kind="note">
+  在采用 Go 1.26 或更高语言版本的代码中，`p := new(42)` 是合法写法，得到指向整数 42 的
+  `*int`；也可以使用有类型的表达式。这不改变 `new(T)`
+  的零值形式。讨论旧项目时应检查模块的语言版本，而不只看本机编译器版本。
+</Callout>
+
+</section>
+
+<section id="layout" className="lesson-section">
+
+<div className="section-kicker">05 / 内存不是字段大小的简单相加</div>
+
+## 填充让字段满足对齐，也让“占多少内存”变成两个问题。
+
+在本节核验的 Go 1.27 / amd64 环境里，下面两个结构体包含相同种类的字段，却有不同大小：
+
+```go
+type A struct {
+    X byte
+    Y int64
+    Z byte
+}
+type B struct {
+    Y int64
+    X byte
+    Z byte
+}
+fmt.Println(unsafe.Sizeof(A{}), unsafe.Sizeof(B{})) // 24 16
+```
+
+在这个平台上，`A.Y` 需要 8 字节对齐。`X` 后面先填充 7 字节，让 `Y` 从偏移 8 开始；`Z` 放在偏移 16，结构体末尾再填充，使连续排列的数组元素也保持所需对齐。`B` 把 8 字节字段放在开头，减少了中间填充。
+
+这里给出的是**标明平台的观察结果**。字段大小与对齐要求应通过 `unsafe.Sizeof`、`unsafe.Alignof`、`unsafe.Offsetof` 或规范确认，不能将上述数字当成所有架构的承诺。也不要把结构体裸内存直接当作可移植网络协议或持久化格式。
+
+更重要的是：`unsafe.Sizeof` 计算值本身，包括必要填充，**不递归计算指针、切片、map 或字符串可达的数据**。一个很小的切片值，也可能使一个很大的底层数组继续存活。对象布局与实际保留内存，是相关但不同的问题。
+
+<Quiz id="go-layout-size" />
+
+</section>
+
+<section id="scope" className="lesson-section">
+
+<div className="section-kicker">06 / 看清是哪一个变量</div>
+
+## 同名不代表同一个；同一循环也不一定复用变量。
+
+短变量声明 `:=` 在内层块可以声明新的同名变量。比如 `if n := 2; n > 0` 中的 `n` 不会替换外层 `n`。同一块内混合重新声明时，则至少要有一个新的非空白变量，并满足类型规则。这也是错误处理中“以为更新了外层 err”的常见来源。
+
+Go 1.22 又带来了必须更新的循环语义。对于使用声明形式的循环变量，每次迭代拥有独立变量：
+
+```go
+var ps []*int
+for i := 0; i < 3; i++ {
+    ps = append(ps, &i)
+}
+fmt.Println(*ps[0], *ps[1], *ps[2]) // 0 1 2（Go 1.22+ 语义）
+```
+
+但如果把 `i` 提前声明，再写 `for i = 0; ...`，则循环是在反复给同一个变量赋值，最后三个指针都读到 3。对于 `range`，同样要区分 `:=` 声明与 `=` 赋值。
+
+语言语义与包采用的 Go 语言版本有关，现代编译器编译一个保留旧 `go` 指令的模块时，不能仅凭工具链新就断言已切换全部语言行为。讨论闭包捕获时，先确定变量身份，再检查并发访问是否同步；新循环变量规则并不消除所有数据竞争。
+
+<Quiz id="go-loop-version" />
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">07 / 让答案经得起换一个条件</div>
+
+## 从“复制了什么”继续问到“应该怎样设计”。
+
+<Followups items={typesFollowups} />
+
+选值接收者还是指针接收者，先考虑对象身份与正确性：是否要修改原值，是否禁止复制，是否需要满足某个接口，以及现有方法是否应该保持一致。方法集与接口实现的准确规则，会在下一节展开。
+
+<div className="answer-example">
+  <span className="answer-label">面试表达 · 先语义，再实现</span>
+  <p>
+    “Go
+    的赋值与传参复制值。结构体里的整数被独立复制，指针值也被复制，但可能继续指向同一对象，所以改字段和改指向的数据要分开分析。类型定义和类型别名也不同，底层类型相同不代表所有变量都能隐式赋值。至于对象的大小、填充以及栈堆分配，我会注明平台和编译条件，用工具验证，不把实现细节当语言保证。”
+  </p>
+</div>
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">08 / 压缩记忆，保留前提</div>
+
+## 记住四句话，就能继续推理。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>赋值复制值 · 指针可共享 · 别名非新类型 · 布局看平台</strong>
+</div>
+
+核验日期：2026-09-19。规范基线 Go 1.27；`new(表达式)` 标明 Go 1.26，循环变量变化标明 Go 1.22。布局数字实测于 linux/amd64。真实示例位于 `examples/go/values/values_test.go`，可运行 `go test ./values` 复验。
+
+<SourceList />
+<LessonFinish />
+
+</section>

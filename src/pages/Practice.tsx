@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { ArrowUpRight, Check, CircleHelp } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { questions } from '../content/questions';
+import { Link, useSearchParams } from 'react-router-dom';
+import { questions as allQuestions } from '../content/questions';
+import { lessons } from '../content/lessons';
 import { useLearningRecords } from '../state/learning';
 import { Quiz } from '../components/Quiz';
 
 export function Practice() {
+  const [params, setParams] = useSearchParams();
+  const selectedLesson = lessons.find((lesson) => lesson.id === params.get('lesson'));
+  const questions = selectedLesson
+    ? allQuestions.filter((question) => question.lessonId === selectedLesson.id)
+    : allQuestions;
   const { records } = useLearningRecords();
   const answers = Object.fromEntries(
     questions.map((question) => [question.id, records[question.lessonId]?.answers[question.id]]),
@@ -29,11 +35,28 @@ export function Practice() {
       </div>
       <h1>再想一次，理解更深一点。</h1>
       <p className="page-deck">把答案放一边，用自己的推理重新走到结论。</p>
+      <label className="practice-lesson-select">
+        练习范围
+        <select
+          aria-label="选择练习章节"
+          value={selectedLesson?.id || 'all'}
+          onChange={(event) =>
+            setParams(event.target.value === 'all' ? {} : { lesson: event.target.value })
+          }
+        >
+          <option value="all">全部已发布章节</option>
+          {lessons.map((lesson) => (
+            <option value={lesson.id} key={lesson.id}>
+              {lesson.label} · {lesson.shortTitle}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="practice-summary">
         <div
           className="practice-ring"
           style={{
-            background: `conic-gradient(var(--accent) ${(correct / questions.length) * 360}deg, var(--border) 0deg)`,
+            background: `conic-gradient(var(--accent) ${(questions.length ? correct / questions.length : 0) * 360}deg, var(--border) 0deg)`,
           }}
         >
           <span>
@@ -48,8 +71,8 @@ export function Practice() {
             {incorrect.length} 道待巩固
           </p>
         </div>
-        <Link to="/learn/preface">
-          返回正文
+        <Link to={selectedLesson?.path || '/roadmap'}>
+          {selectedLesson ? '返回正文' : '查看知识地图'}
           <ArrowUpRight size={15} />
         </Link>
       </div>

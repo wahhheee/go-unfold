@@ -18,7 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
-import { findLesson } from '../content/lessons';
+import { findLesson, lessons } from '../content/lessons';
 import type { LessonDefinition } from '../content/lessons';
 import { NotFound } from '../pages/NotFound';
 import { questions } from '../content/questions';
@@ -28,6 +28,16 @@ import { CodeBlock } from './CodeBlock';
 import { Followups } from './Followups';
 import { LockLab } from './LockLab';
 import { Quiz } from './Quiz';
+import { ValueCopyLab } from './ValueCopyLab';
+import type { ComponentPropsWithoutRef } from 'react';
+
+function DataTable(props: ComponentPropsWithoutRef<'table'>) {
+  return (
+    <div className="table-scroll" tabIndex={0} role="region" aria-label="知识对照表">
+      <table {...props} />
+    </div>
+  );
+}
 
 const LessonContext = createContext<LessonDefinition | null>(null);
 
@@ -59,6 +69,9 @@ function SourceList() {
 
 function LessonFinish() {
   const lesson = useLesson();
+  const position = lessons.findIndex((item) => item.id === lesson.id);
+  const previous = lessons[position - 1];
+  const next = lessons[position + 1];
   const { state, update } = useLearning();
   return (
     <div className="lesson-finish">
@@ -87,6 +100,23 @@ function LessonFinish() {
         记下我的理解
         <ArrowRight size={15} />
       </Link>
+      <nav className="lesson-pagination" aria-label="章节翻页">
+        {previous && (
+          <Link to={previous.path}>
+            <span>上一节</span>
+            <strong>{previous.shortTitle}</strong>
+          </Link>
+        )}
+        {next && (
+          <Link to={next.path}>
+            <span>
+              下一节
+              <ArrowRight size={13} />
+            </span>
+            <strong>{next.shortTitle}</strong>
+          </Link>
+        )}
+      </nav>
     </div>
   );
 }
@@ -94,6 +124,7 @@ function LessonFinish() {
 const mdxComponents = {
   Callout,
   Quiz,
+  ValueCopyLab,
   LockLab,
   Followups,
   SourceList,
@@ -106,6 +137,7 @@ const mdxComponents = {
   FlaskConical,
   ShieldCheck,
   pre: CodeBlock,
+  table: DataTable,
 };
 
 export function Lesson() {

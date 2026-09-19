@@ -111,8 +111,7 @@ textarea {
 button,
 a {
   transition:
-    background 0.16s ease,
-    color 0.16s ease,
+    opacity 0.16s ease,
     border-color 0.16s ease;
 }
 ::selection {
@@ -3137,5 +3136,181 @@ strong {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+.concept-lab {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.concept-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 13px;
+  padding: 18px;
+}
+.concept-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--secondary);
+  font-size: 11px;
+}
+.concept-controls input[type='number'] {
+  width: 65px;
+}
+.concept-controls input[type='number'],
+.concept-controls select,
+.practice-lesson-select select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  min-height: 32px;
+}
+.concept-controls .check-setting {
+  margin-right: auto;
+}
+.check-setting input {
+  accent-color: var(--accent);
+}
+.value-diagram {
+  padding: 20px 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.1fr;
+  gap: 17px;
+  background: var(--soft);
+  border-block: 1px solid var(--border);
+}
+.value-record > strong,
+.value-cells > strong {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--heading);
+  font-size: 12px;
+}
+.value-record > div,
+.value-cells > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 0;
+  min-height: 39px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+.value-record b,
+.value-cells b {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pointer-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--blue);
+}
+.prose .concept-result {
+  padding: 15px 18px;
+  border-top: 1px solid var(--border);
+  color: var(--accent);
+  background: var(--accent-soft);
+  margin: 0;
+  font-size: 12px;
+  min-height: 57px;
+}
+.lesson-pagination {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 27px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.lesson-pagination a {
+  flex: 1;
+  min-width: 0;
+}
+.lesson-pagination a:last-child {
+  text-align: right;
+}
+.lesson-pagination span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.lesson-pagination a:last-child span {
+  justify-content: flex-end;
+}
+.lesson-pagination strong {
+  font-size: 12px;
+  color: var(--accent);
+}
+.practice-lesson-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 23px 0;
+  color: var(--secondary);
+  font-size: 12px;
+}
+.practice-lesson-select select {
+  min-width: 0;
+  max-width: 76%;
+}
+.table-scroll {
+  overflow-x: auto;
+  margin: 20px 0;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.prose th,
+.prose td {
+  padding: 12px;
+  border: 1px solid var(--border);
+  min-width: 100px;
+  vertical-align: top;
+}
+.prose th {
+  background: var(--soft);
+  font-weight: 600;
+}
+@media (max-width: 680px) {
+  .value-diagram {
+    gap: 13px;
+    grid-template-columns: 1fr 1fr;
+    padding: 16px;
+  }
+  .value-cells {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px 20px;
+  }
+  .value-cells > strong {
+    grid-column: 1 / -1;
+    margin: 3px 0 0;
+  }
+  .concept-controls {
+    padding: 16px;
+    gap: 12px;
+  }
+  .concept-controls label {
+    font-size: 10px;
+  }
+  .concept-controls .check-setting {
+    width: 100%;
   }
 }

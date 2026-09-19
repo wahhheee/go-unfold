@@ -124,7 +124,7 @@ test('搜索、目录规划与未找到页面', async ({ page, isMobile }) => {
   await page.getByRole('link', { name: '知识地图', exact: true }).click();
   await page.getByRole('button', { name: '语言基础', exact: true }).click();
   await expect(page.locator('.roadmap-module')).toHaveCount(2);
-  await expect(page.locator('.roadmap-module').first()).toContainText('规划中');
+  await expect(page.locator('.roadmap-module').first()).toContainText('有已发布章节');
   await page.goto('/missing');
   await expect(page.getByRole('heading', { name: '这一页还没有写到。' })).toBeVisible();
   await page.getByRole('link', { name: '回到序章', exact: true }).click();

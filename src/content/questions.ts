@@ -1,3 +1,5 @@
+import { typesQuestions } from './go/types';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -65,6 +67,7 @@ export const questions: Question[] = [
     ],
     takeaway: '先说数据库与隔离级别，再说快照；不要把产品差异背成通用定律。',
   },
+  ...typesQuestions,
 ];
 
 export function getQuestion(id: string): Question {

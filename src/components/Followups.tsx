@@ -1,7 +1,15 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ArrowDown, ArrowUpRight, Check, ChevronDown, MessageCircle } from 'lucide-react';
 
-const followups = [
+export type FollowupItem = {
+  question: string;
+  label: string;
+  answer: string;
+  deeper: string;
+  point: string;
+};
+
+const prefaceFollowups: FollowupItem[] = [
   {
     question: '业务没跑完，锁过期了怎么办？',
     label: '生命周期',
@@ -36,7 +44,8 @@ const followups = [
   },
 ];
 
-export function Followups() {
+export function Followups({ items = prefaceFollowups }: { items?: FollowupItem[] }) {
+  const blockId = useId();
   const [open, setOpen] = useState<number | null>(0);
   const [seen, setSeen] = useState<number[]>([0]);
   return (
@@ -44,14 +53,16 @@ export function Followups() {
       <div className="followup-heading">
         <MessageCircle size={17} />
         <span>面试官继续追问</span>
-        <span>{seen.length} / 4 已展开</span>
+        <span>
+          {seen.length} / {items.length} 已展开
+        </span>
       </div>
-      {followups.map((item, index) => (
+      {items.map((item, index) => (
         <div className={`followup ${open === index ? 'open' : ''}`} key={item.question}>
           <button
             className="followup-trigger"
             aria-expanded={open === index}
-            aria-controls={`followup-${index}`}
+            aria-controls={`${blockId}-followup-${index}`}
             onClick={() => {
               setOpen(open === index ? null : index);
               setSeen((current) => [...new Set([...current, index])]);
@@ -64,7 +75,7 @@ export function Followups() {
             <ChevronDown size={17} />
           </button>
           {open === index && (
-            <div id={`followup-${index}`} className="followup-body">
+            <div id={`${blockId}-followup-${index}`} className="followup-body">
               <span className="tag">{item.label}</span>
               <p>{item.answer}</p>
               <div className="memory-line">

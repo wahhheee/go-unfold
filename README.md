@@ -2,7 +2,7 @@
 
 一本面向 Go 服务端开发的交互式学习手册。以原理、工程边界和追问链组织内容，避免把过时结论当成标准答案。
 
-目前完成应用基础设施与序章，其他模块仅为公开的课程规划，尚未发布。
+应用基础设施与序章已完成，第一章“Go 语言与运行时”按节核验发布。其余模块保留为课程规划，尚未发布；详细进度见 [第一章交付记录](docs/GO_CHAPTER.md)。
 
 ## 本地运行
 
@@ -17,6 +17,7 @@ npm run dev
 
 ```bash
 npm run check          # 类型检查、单元测试、生产构建
+npm run test:go        # 真实 Go 示例，另需 Go 1.27+ 工具链
 npm run format:check   # 格式检查
 npx playwright install chromium
 npm run test:e2e       # 桌面、手机、明暗主题与无障碍检查

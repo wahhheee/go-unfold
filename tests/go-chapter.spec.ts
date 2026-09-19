@@ -1,0 +1,69 @@
+import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { lessons } from '../src/content/lessons';
+import { questions } from '../src/content/questions';
+
+for (const lesson of lessons.filter((item) => item.moduleId === 'go')) {
+  test(`${lesson.label}：正文、练习、追问、主题与记录`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(lesson.path);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(lesson.title);
+    for (const section of lesson.sections)
+      await expect(page.locator(`#${section.id}`)).toBeAttached();
+    for (const code of await page.locator('article pre').all())
+      await expect(code).toHaveClass(/shiki/);
+    const lessonQuestions = questions.filter((question) => question.lessonId === lesson.id);
+    expect(lessonQuestions.length).toBeGreaterThanOrEqual(3);
+    await expect(page.locator('.quiz')).toHaveCount(lessonQuestions.length);
+    for (const question of lessonQuestions) {
+      const quiz = page.getByRole('region', { name: question.title, exact: true });
+      await quiz.getByText(question.options[question.answer], { exact: true }).click();
+      await quiz.getByRole('button', { name: '验证答案' }).click();
+      await expect(quiz.getByRole('status')).toContainText('理解到位');
+    }
+    expect(await page.locator('.followup-trigger').count()).toBeGreaterThanOrEqual(4);
+    for (const trigger of await page.locator('.followup-trigger').all()) {
+      if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    }
+    await page.getByRole('button', { name: '标记为已完成' }).click();
+    await page.reload();
+    await expect(page.getByRole('button', { name: '已完成 · 撤销标记' })).toBeVisible();
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await page.getByRole('button', { name: '切换暗色主题' }).click();
+      const scan = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+        .analyze();
+      expect(
+        scan.violations.map((item) => ({
+          id: item.id,
+          targets: item.nodes.map((node) => node.target),
+        })),
+      ).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    }
+    expect(errors).toEqual([]);
+    await page.goto(`/practice?lesson=${lesson.id}`);
+    await expect(page.locator('.quiz')).toHaveCount(lessonQuestions.length);
+    await expect(page.locator('.quiz-feedback.success')).toHaveCount(lessonQuestions.length);
+  });
+}
+
+test('值复制实验：共享与独立复制', async ({ page }) => {
+  await page.goto('/learn/go-values#lab');
+  const lab = page.getByRole('region', { name: '值复制实验' });
+  await lab.getByRole('button', { name: '复制 a 到 b' }).click();
+  await lab.getByRole('combobox', { name: '修改副本的字段' }).selectOption('age');
+  await lab.getByRole('spinbutton', { name: '字段新值' }).fill('30');
+  await lab.getByRole('button', { name: '应用修改' }).click();
+  await expect(lab.getByRole('status')).toContainText('两边都读到新年龄');
+  await lab.getByRole('checkbox').check();
+  await lab.getByRole('button', { name: '复制 a 到 b' }).click();
+  await lab.getByRole('button', { name: '应用修改' }).click();
+  await expect(lab.getByRole('status')).toContainText('a 的年龄没有变');
+  await expect(lab.locator('.value-cells')).toContainText('20');
+  await expect(lab.locator('.value-cells')).toContainText('30');
+});
