@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test';
 
+test('锁时间线：完整临界区与递归读锁等待环', async ({ page }) => {
+  await page.goto('/learn/concurrency-mutex#lab');
+  const lab = page.getByRole('region', { name: '临界区与等待环实验' });
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('库存变为 -1');
+  await lab.getByRole('combobox').selectOption('whole');
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('只允许一笔成功');
+  await lab.getByRole('combobox').selectOption('recursive');
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('G1 → G2 → G1');
+  await lab.getByRole('button', { name: '重新播放' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('1 / 4');
+});
+
 test('select 实验：取消不优先，default 只处理无就绪状态', async ({ page }) => {
   await page.goto('/learn/concurrency-select#lab');
   const lab = page.getByRole('region', { name: 'select 就绪集合实验' });

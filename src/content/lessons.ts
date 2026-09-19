@@ -15,6 +15,7 @@ import { testingLesson } from './go/testing';
 import { memoryModelLesson } from './concurrency/memory-model';
 import { channelsLesson } from './concurrency/channels';
 import { selectLesson } from './concurrency/select';
+import { mutexLesson } from './concurrency/mutex';
 
 export type LessonDefinition = {
   id: string;
@@ -66,6 +67,7 @@ export const lessons: LessonDefinition[] = [
   memoryModelLesson,
   channelsLesson,
   selectLesson,
+  mutexLesson,
 ];
 
 export function findLesson(id: string) {

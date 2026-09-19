@@ -1,0 +1,188 @@
+import { mutexFollowups } from '../concurrency/mutex';
+import { mutexScenarios } from '../../lib/mutex-scenarios';
+
+<section id="invariant" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 最后一件库存</div>
+
+## 先写出不变量，再画临界区。
+
+两个请求同时预订最后一件商品。你给每次库存读写都加上 Mutex，race 检查也通过了，却还是出现负库存。错误可能不在某次访问，而在**两次访问之间可以插入别人的操作**。
+
+这里的不变量是“成功预订的数量不超过可用库存，剩余库存不为负”。检查够不够和实际扣减，必须形成一次不可被同类操作插入的状态转换。
+
+```go
+// 错误的业务协议：两段访问都加锁，仍然可能超卖。
+mu.Lock()
+enough := remaining >= n
+mu.Unlock()
+if enough {
+    mu.Lock()
+    remaining -= n
+    mu.Unlock()
+}
+```
+
+G1 和 G2 可以先后检查，都看到 remaining=1，然后先后扣减。没有未经同步的读写，也没有违反互斥，但“根据当前库存决定是否扣减”被拆散了。**数据竞争是内存访问问题；业务竞争还包含操作是否满足不变量。**
+
+<Quiz id="con-mutex-invariant" />
+
+```go
+type Stock struct {
+    mu        sync.Mutex
+    remaining int
+}
+
+func (s *Stock) Reserve(n int) bool {
+    if n <= 0 { return false }
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    if s.remaining < n { return false }
+    s.remaining -= n
+    return true
+}
+```
+
+这段实现的前提是所有 remaining 访问都遵守同一个 s.mu 协议，Stock 不在使用后被复制。n 必须为正，否则“扣减负数”会变成增加库存。真实商品服务还涉及持久化、取消预订、幂等与多实例，并不会因这个内存函数自动具备事务性。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 把危险的交错逐帧展开</div>
+
+## 相同的锁，可以保护出不同的结果。
+
+<ScenarioPlayer
+  title="临界区与等待环实验"
+  scenarios={mutexScenarios}
+  boundary="固定两位参与者的教学时间线，展示合法交错与等待依赖，不执行 Go 调度器，也不测量实际等待时间。分段扣减与完整扣减在 examples/go/locking 中有真实并发测试；递归读锁的等待环依据 RWMutex 文档，浏览器不会启动一个无法退出的真实死锁。"
+/>
+
+“给所有字段加锁”只是开始。审查时更有用的问题是：哪些判断和修改必须看成一件事？哪一个时刻代表操作成功？失败路径是否仍持锁？是否有访问绕开协议？
+
+</section>
+
+<section id="identity" className="lesson-section">
+
+<div className="section-kicker">03 / 锁不是可随意复制的句柄</div>
+
+## 同一份共享数据，需要同一套同步关系。
+
+Mutex 零值即可使用，无须构造函数；首次使用后禁止复制。含锁结构体的值接收者、赋值、作为参数传值，以及 append 导致元素搬迁，都可能引入复制。锁住各自的副本，不是在锁同一个资源。
+
+```go
+type Cache struct {
+    mu sync.Mutex
+    data map[string]string
+}
+
+// 应使用 *Cache，并保证整个 Cache 的存储与传递不复制已用过的锁。
+func (c *Cache) Put(key, value string) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.data[key] = value
+}
+```
+
+此例要求 data 已初始化，例如由构造函数 make。如果改成值接收者，map 的内容仍共享，锁却复制了；即便副本里的锁当时处于未锁定状态，也不能保护共享 map。`go vet` 的 copylocks 检查能发现不少此类问题，但不是完整的并发正确性证明。
+
+<Quiz id="con-mutex-copy" />
+
+### defer 释放的是函数生命周期内的锁
+
+局部 Lock 后紧接 defer Unlock，通常能覆盖正常返回和同 G 的 panic 展开。但在长循环里每轮 defer，不会在本轮结束时解锁，而会推迟到函数返回；可以提取一个小函数，或者在控制流清晰的地方显式释放。Unlock 未锁住的 Mutex 属于运行时错误，不能拿它当可忽略的清理动作。
+
+Mutex 不可重入，不会因为“是同一个 G”就允许再次 Lock。它也不绑定特定 G，允许按明确协议由另一个 G 解锁。不可重入与不绑定 G 是两个不同概念。
+
+### TryLock 失败不是一个安全读取窗口
+
+成功的 TryLock 等价于获得 Lock；失败不建立同步关系。失败后直接读普通字段，即使声称“允许读旧值”，仍可能与写入发生数据竞争。正确选择通常是放弃当前操作，或者读取另一个按独立协议发布的不可变快照。
+
+<Quiz id="con-mutex-try" />
+
+</section>
+
+<section id="rwmutex" className="lesson-section">
+
+<div className="section-kicker">04 / 读者共享的是许可，不是写权限</div>
+
+## RLock 允许多个读者，读临界区内依然不能随意写。
+
+多个 RLock 持有者可以同时访问，所以其中一个写 map、增加普通计数器或者修改共享切片，并不会受到其他读者的互斥保护。“这个方法名叫 Get”不是只读证明，懒初始化、命中计数、最近访问时间也可能是写入。
+
+当已有读者持锁且一个写者在等待 Lock 时，后续 RLock 会阻塞到该写者完成，以免新读者无限涌入。于是 G1 持有读锁后再次 RLock，如果中间出现等待写者，就可能形成实验里的等待环。
+
+<Quiz id="con-mutex-rw" />
+
+| 想做的操作           | RWMutex 的实际契约                         | 需要补上的设计                                 |
+| -------------------- | ------------------------------------------ | ---------------------------------------------- |
+| 持有 RLock 再 Lock   | 不支持原地升级，会把自己也算作未退出的读者 | 释放读锁后申请写锁，并重新检查条件             |
+| 持有 Lock 再 RLock   | 不支持原地降级                             | 重新获取时可能有别的写者插入，不能承诺连续快照 |
+| 函数内部再 RLock     | 递归读锁不受支持                           | 区分负责加锁的入口与要求已持锁的内部操作       |
+| 所有读取改用 RWMutex | 不保证更快                                 | 测试读写比例、临界区长度、核心数与尾延迟       |
+
+释放读锁再获得写锁，并不保留原检查结论。例如“键不存在”可能已经失效，必须在写锁下重查。若对象发布后完全不可变，下一节的原子快照可以减少读路径上的锁；那是改变了数据生命周期，不是免费删除同步。
+
+</section>
+
+<section id="engineering" className="lesson-section">
+
+<div className="section-kicker">05 / 等待会沿调用链传播</div>
+
+## 锁顺序、持锁时间与外部一致性，要分别回答。
+
+两个账户转账若各自先锁来源、再锁目标，A→B 与 B→A 会形成环。可以按稳定且唯一的账户 ID 统一获取顺序，同时处理“同一账户”以免重复锁住自己；所有相关路径必须遵守同样顺序。也可以由更高层单一锁保护这个小范围，但要评估竞争。
+
+不要在没有评估的情况下持锁跨网络 I/O 或调用未知回调。下游变慢会延长整个临界区；回调若重新进入当前对象，还可能死锁。常见方案是在锁内取出所需快照，锁外做慢工作，回来再校验版本并提交。**如果回来的结果依赖旧状态，重新校验不能省略。**
+
+Mutex.Lock 没有 Context 参数。取消请求不会把已经阻塞的 Lock 自动移出等待队列。额外启动一个 G 去 Lock，然后在外面 select 超时，只会留下仍可能拿到锁却无人管理的工作。应先限制准入、缩短临界区，或选择有明确可取消获取契约的工具，并负责其整个生命周期。
+
+<Callout title="一毫秒阈值是实现细节，不是服务承诺" kind="fact">
+  Go 1.27.1 的 Mutex 实现区分正常与饥饿模式，并使用约 1ms 的等待阈值参与切换。 这不承诺严格
+  FIFO，更不承诺任意请求在 1ms 内获锁。应通过 mutex/block profile
+  和代表性负载定位竞争，不能从源码常量推导业务 SLA。
+</Callout>
+
+进程内的锁也不会保护另一个服务副本。对持久库存，数据库里的条件更新、约束和事务才是资源侧的仲裁机制；PostgreSQL 的典型单语句形式如下，应用还要检查是否返回一行：
+
+```sql
+UPDATE inventory
+SET remaining = remaining - $2
+WHERE sku = $1 AND $2 > 0 AND remaining >= $2
+RETURNING remaining;
+```
+
+这里假设 sku 唯一、参数与列的整数类型兼容。它表达单行条件扣减，不是一套完整订单协议；多个商品、支付、重试与请求去重还需各自的事务和幂等设计。完整数据库讨论放在后续章节。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 问到最后，是谁在保护什么</div>
+
+## 说出锁的边界，也说出边界之外的责任。
+
+<Followups items={mutexFollowups} />
+
+面试表达：“Mutex 建立互斥和同步顺序，但临界区必须覆盖完整不变量。使用后不复制锁，所有访问遵守共同协议；RWMutex 禁止递归读锁和原地升级降级。性能要看实际竞争与尾延迟，多进程和外部副作用要由对应资源协议保证。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 保护关系，不只是保护字段</div>
+
+## 无竞态、无死锁、业务正确，是三次不同的检查。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>检查修改一起锁 · 同数据同协议 · 读锁不可递归 · 阈值不是时限</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1。`examples/go/locking` 用屏障稳定复现无数据竞争的超卖，再验证完整预订、读写互斥与跨 G 解锁。真实 race 检查通过只能说明这些执行未发现数据竞争，不能替代不变量证明。
+
+<SourceList />
+<LessonFinish />
+
+</section>

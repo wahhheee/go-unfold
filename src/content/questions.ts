@@ -11,6 +11,7 @@ import { testingQuestions } from './go/testing';
 import { memoryModelQuestions } from './concurrency/memory-model';
 import { channelsQuestions } from './concurrency/channels';
 import { selectQuestions } from './concurrency/select';
+import { mutexQuestions } from './concurrency/mutex';
 
 export type Question = {
   id: string;
@@ -92,6 +93,7 @@ export const questions: Question[] = [
   ...memoryModelQuestions,
   ...channelsQuestions,
   ...selectQuestions,
+  ...mutexQuestions,
 ];
 
 export function getQuestion(id: string): Question {
