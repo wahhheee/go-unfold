@@ -121,3 +121,19 @@ test('切片实验：共享追加与容量隔离', async ({ page }) => {
   await expect(lab.locator('.slice-descriptors')).toContainText('[10 20 30 40 55]');
   await expect(lab.getByRole('status')).toContainText('不再共享');
 });
+
+test('map 探测：碰撞、墓碑与不存在的键', async ({ page }) => {
+  await page.goto('/learn/go-maps#lab');
+  const lab = page.getByRole('region', { name: '哈希探测实验' });
+  await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.locator('.probe-slot.candidate')).toHaveCount(2);
+  await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('deleted 不是 empty');
+  await lab.getByRole('button', { name: '推进一步' }).click();
+  await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.locator('.probe-slot.found')).toContainText('k42');
+  await lab.getByRole('combobox').selectOption('k77');
+  for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('键不存在');
+  await expect(lab.locator('.probe-slot.found')).toHaveCount(0);
+});

@@ -1094,6 +1094,55 @@ strong {
   padding: 20px;
   background: var(--soft);
 }
+.probe-groups {
+  padding: 18px 20px;
+  display: grid;
+  gap: 22px;
+}
+.probe-group > strong {
+  display: block;
+  min-height: 26px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+.probe-slots {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+}
+.probe-slot {
+  min-height: 91px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--soft);
+}
+.probe-slot small,
+.probe-slot span {
+  font-size: 10px;
+  color: var(--secondary);
+  min-height: 17px;
+}
+.probe-slot b {
+  font-size: 13px;
+  color: var(--heading);
+}
+.probe-slot.candidate {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+}
+.probe-slot.found {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+@media (max-width: 700px) {
+  .probe-slots {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 .slice-memory > div > strong {
   display: block;
   margin-bottom: 12px;

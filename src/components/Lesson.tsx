@@ -32,6 +32,7 @@ import { ValueCopyLab } from './ValueCopyLab';
 import { InterfaceLab } from './InterfaceLab';
 import { ConstraintLab } from './ConstraintLab';
 import { SliceLab } from './SliceLab';
+import { MapProbeLab } from './MapProbeLab';
 import type { ComponentPropsWithoutRef } from 'react';
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
@@ -131,6 +132,7 @@ const mdxComponents = {
   InterfaceLab,
   ConstraintLab,
   SliceLab,
+  MapProbeLab,
   LockLab,
   Followups,
   SourceList,

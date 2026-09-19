@@ -1,0 +1,150 @@
+import { mapFollowups } from '../go/maps';
+
+<section id="semantics" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 容器不是一组彼此独立的变量</div>
+
+## map 的赋值共享条目，缺失键读取返回零值。
+
+一个请求统计器把 `counts` 传进函数，函数写入新计数，调用者能看到变化。这仍是按值传参：复制的 map 值连接到同一个底层数据结构。在函数中重新 `make` 并赋给形参，则不会替换调用者保存的 map 值。
+
+```go
+m := map[string]int{"ok": 0}
+n := m
+n["ok"]++
+value, exists := m["missing"]
+fmt.Println(m["ok"], value, exists) // 1 0 false
+```
+
+只看 `m[key] == 0` 无法区分“没有这个键”和“有这个键但值为 0”。权限、库存、计费这些场景必须认真对待 comma-ok 的第二个结果。`make(map[K]V, n)` 中的 n 是初始容量提示，不是限制；map 没有可用来获取容量的 `cap` 操作。
+
+`var m map[string]int` 是 nil map：读取、len、range、delete、clear 可以使用，但写入条目会 panic。map 只能与 nil 直接比较，不能用 `m1 == m2` 比内容。
+
+<Quiz id="go-map-nil" />
+
+### 键必须可比较，还要考虑比较的业务含义
+
+切片、map、函数不能直接作为键；可比较的数组和结构体可以。`map[any]int` 虽然能编译，塞入动态类型为切片的键仍会 panic。浮点 NaN 也值得单独注意：它可比较，却不等于自身。
+
+```go
+x := math.NaN()
+m := map[float64]int{x: 1}
+_, ok := m[x]
+delete(m, x)
+fmt.Println(ok, len(m)) // false 1
+clear(m)
+fmt.Println(len(m))     // 0
+```
+
+哈希查找最终仍要比较键，NaN 的非自反性让“用原来的变量查回去”也失败。需要精确身份的业务键，应选择符合业务等价关系的表示，不能把浮点数当作万用标识符。
+
+### map 索引不能当作稳定的元素地址
+
+`&m[key]` 不合法。若 `m` 的值类型为结构体，也不能直接 `m[key].Count++`；通常取出值、修改、整体写回。`map[K]*Entry` 可以修改指针所指对象，但对象共享、nil 检查和并发同步问题随之出现。索引不可寻址是语言规则，不必把它简化成“永远只是因为扩容搬家”。
+
+</section>
+
+<section id="iteration" className="lesson-section">
+
+<div className="section-kicker">02 / 规范给出的自由，不应变成业务依赖</div>
+
+## 遍历顺序没有保证，也不是均匀抽样。
+
+不要依赖插入顺序、上一次遍历顺序或“一直测起来都这样”。取第一个键当作随机选择，还需要均匀性保证，而 map range 没提供这种抽样契约。需要稳定展示或签名输入时，提取键后按明确规则排序：
+
+```go
+keys := slices.Sorted(maps.Keys(counts)) // Go 1.23 起的迭代器 API
+for _, key := range keys {
+    fmt.Println(key, counts[key])
+}
+```
+
+这里假设没有并发写，或者外层已持有所需锁。先复制键、释放锁、再从变化的 map 取值，不自动构成某个时刻的一致快照。需要快照时，要在同一同步边界内复制需要的键和值，并说明值里是否还含共享引用。
+
+单 goroutine 在 range 中修改 map 有明确规则：尚未遍历到的条目若被删除，之后不会产生；新创建的条目可能产生，也可能被跳过。这是允许的迭代语义，与多个 goroutine 未同步读写同一个 map 是两个问题。
+
+<Quiz id="go-map-range" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 当前实现，先筛选再确认</div>
+
+## Go 1.24 起，主线 map 使用 Swiss Table 设计。
+
+旧面经常画 bucket、overflow bucket 和旧实现的搬迁过程。阅读老代码时它们仍有价值，但回答当前运行时不能忽略版本变化。以下观察以 Go 1.27.1 实现为基线，不属于语言对所有实现的承诺。
+
+当前实现把键值槽组织成组，每组八个槽，配有控制字节。控制信息记录空、删除或短哈希 H2；查找时先批量比较短哈希，减少需要逐个比较完整键的数量。**H2 匹配只是候选，不是命中。** 碰撞仍需完整键比较与继续探测。
+
+<MapProbeLab />
+
+为什么删除槽有时保留墓碑？如果把探测链中间的位置直接标成“从未使用的空位”，查找可能太早停止，漏掉后面的键。墓碑表示这个位置曾参与过探测关系，不能直接当作结束条件。实际实现并非每次删除都必须留墓碑，要看所在组的情况。
+
+当表需要增长时，探测布局随之改变。当前大 map 用目录连接多张表，让表按需增长和分裂，限制一次表增长的范围。这不等于每次插入都没有分配、不需要搬动条目，也不承诺每次操作具有严格恒定耗时。
+
+<Quiz id="go-map-swiss" />
+
+</section>
+
+<section id="concurrency" className="lesson-section">
+
+<div className="section-kicker">04 / 保护的是不变量，不只是容器调用</div>
+
+## 普通 map 的并发写，需要明确同步。
+
+不同 goroutine 写不同 key，也可能共同修改 map 内部结构，不能因此免锁。没有并发写并且安全发布后，并发读取可以成立；读取、遍历、len 与写入混用则都要检查同步边界。
+
+```go
+type Counter struct {
+    mu sync.Mutex
+    m  map[string]int
+}
+
+func (c *Counter) Add(key string) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.m == nil { c.m = make(map[string]int) }
+    c.m[key]++ // 读、加一、写回，全部在锁内
+}
+```
+
+读取同一个 m 的方法也必须遵守这把锁的约定，不能只给写方法加锁。Counter 使用后不得按值复制，因为包含 Mutex。方法签名和对象生命周期，需要共同维护这个约定。
+
+`sync.Map` 提供并发安全的单次操作，以及 `LoadOrStore`、`CompareAndSwap` 等具体原子操作。但 `Load → 计算 → Store` 不是自动原子的“事务”，两个调用者仍可能读到同一旧值并互相覆盖。跨键库存不为负、总额守恒、限额检查等业务条件，也不会因为换了容器而自动成立。
+
+<Quiz id="go-map-atomic" />
+
+如果遇到运行时检测到并发 map 访问导致的 fatal，不要尝试用 recover 维持运行。这不同于可恢复的普通 panic；而没有 fatal 也不证明没有数据竞态。后面的测试一节会说明 race detector 的覆盖边界。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">05 / 从实现细节回到正确性</div>
+
+## 高效查找只解决了一部分问题。
+
+<Followups items={mapFollowups} />
+
+面试表达：“我先说语言规则：键可比较、nil map 可读不可写、遍历无序。当前实现从 Go 1.24 起采用 Swiss Table，短哈希筛候选后仍比较完整键。并发方面，普通 map 要同步，sync.Map 的单次安全不覆盖复合读改写和跨键不变量。顺序、快照和回收都要单独设计。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">06 / 不把四种保证混为一谈</div>
+
+## 查得快、遍历稳、并发安全、业务原子，是四件事。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>缺失用 ok · 顺序别依赖 · H2 筛候选 · 不变量定锁边界</strong>
+</div>
+
+核验日期：2026-09-19。语言与测试 Go 1.27；Swiss Table 从 Go 1.24 起，具体组与探测描述按 Go 1.27.1 源码。`examples/go/maps` 验证 nil、NaN、遍历中删除、浅复制和带锁计数。
+
+<SourceList />
+<LessonFinish />
+
+</section>

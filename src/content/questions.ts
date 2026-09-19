@@ -2,6 +2,7 @@ import { typesQuestions } from './go/types';
 import { interfaceQuestions } from './go/interfaces';
 import { genericQuestions } from './go/generics';
 import { sequenceQuestions } from './go/sequences';
+import { mapQuestions } from './go/maps';
 
 export type Question = {
   id: string;
@@ -74,6 +75,7 @@ export const questions: Question[] = [
   ...interfaceQuestions,
   ...genericQuestions,
   ...sequenceQuestions,
+  ...mapQuestions,
 ];
 
 export function getQuestion(id: string): Question {
