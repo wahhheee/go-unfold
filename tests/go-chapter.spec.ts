@@ -171,3 +171,18 @@ test('GC 实验：增长预算与根集合', async ({ page }) => {
   await lab.getByRole('button', { name: '重置 GC 参数' }).click();
   await expect(lab.locator('.gc-metrics')).toContainText('18.0 MiB');
 });
+
+test('画像视角：累计分配与存活内存独立', async ({ page }) => {
+  await page.goto('/learn/go-performance#lab');
+  const lab = page.getByRole('region', { name: '内存画像视角实验' });
+  await expect(lab.locator('.profile-row').first()).toContainText('sessionCache');
+  await lab.getByRole('radio', { name: '累计分配 · alloc_space' }).check();
+  await expect(lab.locator('.profile-row').first()).toContainText('decodeBuffer');
+  await expect(lab.locator('.profile-bars')).toContainText('1340.0 MiB');
+  await lab.getByRole('slider', { name: '缓存保留比例' }).focus();
+  await page.keyboard.press('Home');
+  await expect(lab.locator('.profile-bars')).toContainText('1340.0 MiB');
+  await lab.getByRole('radio', { name: '当前存量 · inuse_space' }).check();
+  await expect(lab.locator('.profile-row').first()).toContainText('decodeBuffer');
+  await expect(lab.locator('.profile-bars')).toContainText('22.0 MiB');
+});

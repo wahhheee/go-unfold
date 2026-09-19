@@ -35,6 +35,7 @@ import { SliceLab } from './SliceLab';
 import { MapProbeLab } from './MapProbeLab';
 import { ScenarioPlayer } from './ScenarioPlayer';
 import { GCBudgetLab } from './GCBudgetLab';
+import { ProfileLab } from './ProfileLab';
 import type { ComponentPropsWithoutRef } from 'react';
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
@@ -137,6 +138,7 @@ const mdxComponents = {
   MapProbeLab,
   ScenarioPlayer,
   GCBudgetLab,
+  ProfileLab,
   LockLab,
   Followups,
   SourceList,

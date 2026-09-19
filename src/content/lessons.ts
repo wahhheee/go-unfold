@@ -9,6 +9,7 @@ import { sequencesLesson } from './go/sequences';
 import { mapsLesson } from './go/maps';
 import { schedulerLesson } from './go/scheduler';
 import { memoryLesson } from './go/memory';
+import { performanceLesson } from './go/performance';
 
 export type LessonDefinition = {
   id: string;
@@ -54,6 +55,7 @@ export const lessons: LessonDefinition[] = [
   mapsLesson,
   schedulerLesson,
   memoryLesson,
+  performanceLesson,
 ];
 
 export function findLesson(id: string) {

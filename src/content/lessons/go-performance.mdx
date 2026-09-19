@@ -1,0 +1,174 @@
+import { performanceFollowups } from '../go/performance';
+
+<section id="question" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 先写问题，再开工具</div>
+
+## “快一点”不是一个可验证的目标。
+
+接口 P99 从 80ms 涨到 300ms、每秒 CPU 用量翻倍、容器内存不断上涨、相同吞吐下分配次数过多，是四个不同的问题。先记录触发负载、观察窗口、正常基线和期望指标，再选工具，才能避免拿一张 CPU 图解释全部现象。
+
+微基准适合隔离某段操作的成本；压测更接近服务整体吞吐与延迟；画像解释消耗发生在哪里；trace 展示事件先后与调度、阻塞关系。它们互补，任何一个都不是正确性证明。
+
+固定并记录 Go 版本、平台、构建参数、输入大小和分布、并发度、CPU 配额，以及是否启用 PGO、race 或特殊实验。优化前先确保两种实现满足同一业务契约，不能靠少做校验获得“加速”。
+
+</section>
+
+<section id="benchmark" className="lesson-section">
+
+<div className="section-kicker">02 / 把测量单位写进代码</div>
+
+## 从两种构造切片的方法开始。
+
+本例固定生成 1000 个整数，比较未预留容量和准确预留容量。它研究的是已知正数规模的分配成本；不能把预分配越多越好当作结论。
+
+```go
+func Build(n int) []int {
+    var out []int
+    for i := 0; i < n; i++ { out = append(out, i) }
+    return out
+}
+
+func BuildReserved(n int) []int {
+    out := make([]int, 0, n)
+    for i := 0; i < n; i++ { out = append(out, i) }
+    return out
+}
+
+func BenchmarkBuildReserved(b *testing.B) {
+    b.ReportAllocs()
+    for b.Loop() {
+        _ = BuildReserved(1000)
+    }
+}
+```
+
+Go 1.24 起可用 `B.Loop`。它在首次调用时重置计时，在结束时停止计时；标准 `for b.Loop() { ... }` 形式还对循环体中的调用参数、结果等提供保活机制，避免编译器把待测工作完全删除。不要与传统 b.N 循环嵌套混用，也不要擅自改写条件后假设相同保护仍成立。
+
+本例没有在基准体里打印、读文件或启动网络请求。准备输入可以在计时外完成，但若构造输入就是请求成本的一部分，就应纳入相应基准。两种 Build 在 n=0 时 nilness 不同，负数也有不同表现；真实替换前必须审查这些契约，当前比较只针对 n=1000。
+
+在示例模块目录运行：
+
+```bash
+go test ./performance -run '^$' -bench '^BenchmarkBuild' \
+  -benchmem -benchtime=200ms -count=5 -cpu=1
+```
+
+`ns/op` 是每次操作的时间，`B/op` 和 `allocs/op` 描述该测量口径下的分配。这里的 `-cpu=1` 使基准在一个 P 的条件下运行，不等于给操作系统线程绑核，也不等于模拟真实服务并发。
+
+当前工具链实跑时，结果只在循环体内使用的预分配版本出现了 0 B/op；逃逸诊断可以帮助确认内联后的存储优化。这不代表对象在物理上不需要任何空间，也不能直接推广到返回给长期持有者的场景。示例同时提供 `BenchmarkBuildEscaping` 和 `BenchmarkBuildReservedEscaping`，把返回切片保存到包级变量，分别比较“局部使用”和“结果逃逸”的条件。
+
+每次改变一个变量，保留原始样本。已安装并固定版本的官方 x/perf `benchstat` 可比较多次运行的摘要；用于前后版本比较时，应保持基准名称和输入相同：
+
+```bash
+benchstat before.txt after.txt
+```
+
+统计显著性与业务价值也不同。纳秒级差异可能稳定存在，却对网络占主导的接口毫无可见影响；反过来，一个小的分配变化可能在高吞吐下累积成明显 GC 成本。
+
+<Quiz id="go-perf-loop" />
+
+</section>
+
+<section id="profiles" className="lesson-section">
+
+<div className="section-kicker">03 / 先选口径，再解释图</div>
+
+## CPU 时间、阻塞时间与内存字节不能混读。
+
+| 问题                   | 常用证据        | 解释边界                       |
+| ---------------------- | --------------- | ------------------------------ |
+| CPU 花在哪些调用上     | CPU profile     | 不是全部墙钟等待时间           |
+| 哪些位置分配很多字节   | alloc_space     | 已回收对象也计入累计分配       |
+| 哪些分配仍有内存存活   | inuse_space     | 分配栈不等于持有引用链         |
+| 哪些同步操作在阻塞     | block profile   | 需开启采样，不覆盖所有外部 I/O |
+| 哪些持锁位置造成争用   | mutex profile   | 通常归因到释放争用锁的栈       |
+| G 何时就绪、运行、阻塞 | execution trace | 有采集开销，需代表性窗口       |
+
+block 画像通常通过 `runtime.SetBlockProfileRate` 开启，mutex 画像通过 `runtime.SetMutexProfileFraction` 配置采样。不要因为默认采样关闭而把空结果当作没有争用。普通网络等待还要结合 trace、连接池和下游观测，不能全塞进 block profile 的解释里。
+
+在 pprof 中，flat 指直接归因于当前位置的样本，cumulative 包含其子调用；火焰图的宽度对应所选样本量。横向排序通常不是请求的时间顺序，不能从左右位置推断“先执行谁”。
+
+<Quiz id="go-perf-cpu" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">04 / 同一批工作，两张不同账单</div>
+
+## 分得最多的地方，不一定留得最多。
+
+<ProfileLab />
+
+临时解码缓冲区可能累计分配 1200 MiB，却只剩少量存活；缓存累计只分配 80 MiB，却长期保留大部分。前者适合调查重复构造与分配率，后者适合调查容量、淘汰和生命周期。调整缓存保留比例后再切回累计视角，历史分配不会被“撤销”。
+
+真实堆画像还存在采样误差和 GC 统计时间边界。不要在两个不同负载窗口之间直接比较一个百分比，也不要因绝对样本总量变化而误读占比。必要时同时看字节与对象数量，避免把大量小对象和少量大对象混为一谈。
+
+<Quiz id="go-perf-memory" />
+
+</section>
+
+<section id="workflow" className="lesson-section">
+
+<div className="section-kicker">05 / 从文件到推理，再回到指标</div>
+
+## 留下可复验的采样命令，而不是只留截图。
+
+下面命令在 `examples/go` 目录运行，会生成本地诊断文件。二进制、源码和画像应对应同一次构建：
+
+```bash
+go test ./performance -run '^$' -bench '^BenchmarkBuildReservedEscaping$' \
+  -benchtime=2s -cpu=1 -cpuprofile=cpu.out -memprofile=mem.out \
+  -o performance.test
+go tool pprof -top performance.test cpu.out
+go tool pprof -top -alloc_space performance.test mem.out
+go tool pprof -http=127.0.0.1:8081 performance.test cpu.out
+```
+
+最后一条启动本地可视化界面，需要端口可用。测量时最好把性能比较和诊断采样分开：开启画像会引入成本，不应把采样过程的数字直接当作无采样基线。此次仓库的实跑条件和分配结果记录在 `examples/go/performance/RESULTS.md`。
+
+需要事件时间线时，生成并查看 trace：
+
+```bash
+go test ./performance -run '^TestBuilders$' -count=1 -trace=trace.out
+go tool trace -http=127.0.0.1:8082 trace.out
+```
+
+这个测试窗口很短，只用来确认工具链和文件格式可用；真实诊断应采集包含问题的代表性负载。Go 1.25 的 `runtime/trace.FlightRecorder` 可以持续保留近期滚动窗口，在异常发生后保存近期证据，但需要评估内存与运行开销。
+
+线上诊断入口应独立监听并控制访问；`net/http/pprof` 的导入会注册默认 mux 路由，不要不加检查地把默认 mux 暴露到公网。画像可能包含敏感调用路径和运行信息，采样还会消耗资源。对本地学习而言，使用生成的文件和回环地址就足够。
+
+最终闭环是：发现指标异常，选择相应证据，提出可证伪假设，只改变一个关键因素，复跑正确性与代表性性能检查，再确认收益和代价。用“哪个假设被证据支持”描述工作，比“我看过 pprof”更有说服力。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 不把一次测量升级成定律</div>
+
+## 优化结论必须带上输入、环境和代价。
+
+<Followups items={performanceFollowups} />
+
+面试表达：“我先明确目标是 CPU、分配、保留还是延迟，再在固定环境建立多次基线。用 B.Loop 管理基准边界，用相应画像解释热点，用 trace 追时间关系。优化后同时确认正确性和端到端指标，不把一次微基准或一张火焰图当作完整结论。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 选择比背命令更重要</div>
+
+## 先定指标，选对口径，最后验证整体收益。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>基准控变量 · CPU 非墙钟 · alloc 流量 / inuse 存量 · trace 看时序</strong>
+</div>
+
+核验日期：2026-09-19，执行基线 Go 1.27.1；B.Loop 从 Go 1.24 起，FlightRecorder 从 Go 1.25 起。`examples/go/performance` 提供正确性检查与可执行基准；页面画像为教学样本，实测记录明确区分环境观察与一般结论。
+
+<SourceList />
+<LessonFinish />
+
+</section>
