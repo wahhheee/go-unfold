@@ -1628,6 +1628,52 @@ strong {
   font-size: 12px;
   color: var(--blue);
 }
+.channel-scene {
+  padding: 18px;
+  background: var(--soft);
+  border-block: 1px solid var(--border);
+}
+.channel-state,
+.channel-waiters {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+.channel-state strong {
+  color: var(--accent);
+}
+.channel-queue {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.channel-slot {
+  min-height: 78px;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--surface);
+}
+.channel-slot small {
+  color: var(--secondary);
+  font-size: 10px;
+}
+.channel-slot b {
+  color: var(--accent);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.channel-slot.unused {
+  background: transparent;
+  border-style: dashed;
+}
 .editor-highlight {
   pointer-events: none;
 }

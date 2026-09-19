@@ -1,0 +1,161 @@
+import { channelsFollowups } from '../concurrency/channels';
+
+<section id="states" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 把阻塞、结束与失败分别命名</div>
+
+## channel 的状态，决定这次操作能否继续。
+
+一个采集任务把结果交给汇总任务。采集者关心“是否还有空间”，汇总者关心“是否还有数据”，协调者关心“以后是否还会有人发送”。这三个问题不能都用一句 close 解决。
+
+| 通道状态       | 发送                 | 接收                               | close    |
+| -------------- | -------------------- | ---------------------------------- | -------- |
+| nil            | 永久阻塞             | 永久阻塞                           | panic    |
+| 无缓冲、未关闭 | 等待接收方           | 等待发送方                         | 关闭成功 |
+| 有缓冲、未关闭 | 满时等待，否则可完成 | 空时等待，否则取值                 | 关闭成功 |
+| 已关闭         | panic                | 先排空缓冲，再持续返回零值与 false | panic    |
+
+表中的等待描述直接操作；select 若有其他可执行分支，可以不选择这个等待操作。nil 与 `make(chan T)` 完全不同：后者虽然容量为 0，却可以与对方交接；nil 永远不会就绪。
+
+```go
+ch := make(chan int, 1)
+ch <- 0
+close(ch)
+v, ok := <-ch // 0, true：确实发送过的零
+v, ok = <-ch  // 0, false：关闭并读空
+_ = v
+_ = ok
+```
+
+不要把 `v == 0` 当作流结束。关闭不会丢掉缓冲中的元素，也不保证每个收到的元素都被业务成功处理。`for v := range ch` 会继续取值，直到关闭且排空；对 nil channel 的 range 会一直等。
+
+<Quiz id="con-channel-zero" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 先填满，再接收，再关闭</div>
+
+## 同一组操作，换一个容量就会改变等待位置。
+
+先连续发送两次，观察容量 1 时第二次为什么挂起；接收一次后再关闭，区分缓冲值与结束信号。然后切成无缓冲或 nil，重新推演同样的操作。
+
+<ChannelLab />
+
+容量是在 make 时确定的，实验中的切换会重建通道。真实服务调整容量通常需要明确重建和切换协议，不能指望已经阻塞的任务自动迁移。
+
+</section>
+
+<section id="order" className="lesson-section">
+
+<div className="section-kicker">03 / 无缓冲不是“远程函数已经执行完”</div>
+
+## 发送前的写入可以发布，接收后的处理还没有完成。
+
+上一节已经证明：发送同步先于对应接收完成。无缓冲通道还提供另一方向的边：接收同步先于对应发送完成。这允许交接双方建立顺序，却不把交接之后的所有业务塞进同一个同步动作。
+
+```go
+jobs := make(chan Job)
+go func() {
+    job := <-jobs
+    persist(job) // 交接之后才开始的工作
+}()
+jobs <- job
+// 这里不能推导 persist 已完成。
+```
+
+这里 Job、job 和 persist 是业务占位符。若发送方必须等待落库结果，就应收到单独的结果或确认；若允许异步处理，还要规定失败重试、排队上限和服务退出时如何收尾。channel 自身不提供持久化、消费确认或跨进程投递保障。
+
+<Quiz id="con-channel-ack" />
+
+### 容量影响反向同步保证
+
+容量为 C 的 channel，第 k 次接收同步先于第 k+C 次发送完成。C=0 时退化为无缓冲交接；C=1 时第一次发送可以在任何接收发生前完成。所以把 `make(chan T)` 改成 `make(chan T, 1)`，可能改变已有代码依赖的顺序，不能只当作无害性能优化。
+
+另一个边界是关闭：只有因为关闭而返回零值的接收，才直接观察到关闭这一同步事件。若先读到缓冲值，它对应的是那次发送；不要把缓冲值的接收当作观察到所有发送之后的最终收尾。需要最终收尾状态时，应确认流已排空结束，或使用专门完成通知。
+
+</section>
+
+<section id="ownership" className="lesson-section">
+
+<div className="section-kicker">04 / 切片和指针会把别名带到另一边</div>
+
+## channel 复制元素值，不替你设计对象所有权。
+
+```go
+ch := make(chan []byte, 1)
+buf := []byte("abc")
+ch <- buf
+buf[0] = 'X'
+fmt.Println(string(<-ch)) // Xbc：同一个 G 内的别名演示
+```
+
+这里刻意在一个 G 中演示，所以没有竞态；它证明底层数组没有被深复制。若发送方和接收方在不同 G 中无同步地修改、读取同一底层数组，就可能变成数据竞争。
+
+常见的两种契约是：发送后发送方不再使用该对象，接收方取得使用与归还责任；或者发送独立副本，例如 `ch <- bytes.Clone(buf)`。前者减少复制但需要严格生命周期，后者需要内存成本。共享只读快照也可行，前提是所有参与者真的不再修改它。
+
+方向类型如 `chan<- T`、`<-chan T` 能在 API 上限制发送或接收，却不建立线性所有权。多个变量可以别名同一个 channel，发送端类型也不阻止持有者调用 close；责任仍要由协议表达。
+
+<Quiz id="con-channel-owner" />
+
+</section>
+
+<section id="closing" className="lesson-section">
+
+<div className="section-kicker">05 / 关闭意味着不会再发送，不意味着请你别发送</div>
+
+## 多生产者需要一个知道全体已退出的协调者。
+
+```go
+out := make(chan int)
+var senders sync.WaitGroup
+for i := range 3 {
+    senders.Go(func() { out <- i }) // Go 1.25+，任务不能 panic
+}
+go func() {
+    senders.Wait()
+    close(out)
+}()
+for value := range out {
+    fmt.Println(value)
+}
+```
+
+协调者必须在任务已登记后等待。这个有限示例的消费者会排空所有结果；真实下游可能提前返回，届时生产者会卡在发送上，Wait 也无法完成。需要让发送点同时监听取消，并确保调用方等待生产者退出。任务组与流水线一节会把这个协议补全。
+
+“由发送方关闭”是实用的责任约定，不是语言规定只能由某个 G 关闭。更准确的问题是：谁能证明不会再有发送？接收者超时后直接 close 不能证明这点；用 sync.Once 包住 close 也只能去重关闭，不能解决正在进行的发送。
+
+<Quiz id="con-channel-close" />
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 从值的交接，追问到任务的退出</div>
+
+## 对每一个可能阻塞的位置，都写出谁来解除它。
+
+<Followups items={channelsFollowups} />
+
+面试表达：“我先区分 nil、无缓冲、有缓冲与关闭状态，再看 send/receive/close 的结果。发送只交接值，不深复制、不保证业务处理完成。关闭是不会再发送的承诺，多生产者通常由协调者在全体退出后关闭；取消、确认和所有权另有协议。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 让每一种结束都有清楚的含义</div>
+
+## 交接、处理、关闭、取消，分别设计。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>nil 永不就绪 · 关闭先排空 · 交接非完成 · 关闭方证明无发送</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1。`examples/go/channels` 验证关闭后的零值与 ok、无缓冲交接、nil 不就绪、切片别名和多发送者协调关闭；涉及调度的断言采用明确同步，不用 Sleep 猜测进度。
+
+<SourceList />
+<LessonFinish />
+
+</section>

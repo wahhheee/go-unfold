@@ -13,6 +13,7 @@ import { performanceLesson } from './go/performance';
 import { errorsLesson } from './go/errors';
 import { testingLesson } from './go/testing';
 import { memoryModelLesson } from './concurrency/memory-model';
+import { channelsLesson } from './concurrency/channels';
 
 export type LessonDefinition = {
   id: string;
@@ -62,6 +63,7 @@ export const lessons: LessonDefinition[] = [
   errorsLesson,
   testingLesson,
   memoryModelLesson,
+  channelsLesson,
 ];
 
 export function findLesson(id: string) {

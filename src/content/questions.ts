@@ -9,6 +9,7 @@ import { performanceQuestions } from './go/performance';
 import { errorQuestions } from './go/errors';
 import { testingQuestions } from './go/testing';
 import { memoryModelQuestions } from './concurrency/memory-model';
+import { channelsQuestions } from './concurrency/channels';
 
 export type Question = {
   id: string;
@@ -88,6 +89,7 @@ export const questions: Question[] = [
   ...errorQuestions,
   ...testingQuestions,
   ...memoryModelQuestions,
+  ...channelsQuestions,
 ];
 
 export function getQuestion(id: string): Question {

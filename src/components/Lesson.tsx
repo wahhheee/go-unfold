@@ -38,6 +38,7 @@ import { GCBudgetLab } from './GCBudgetLab';
 import { ProfileLab } from './ProfileLab';
 import { RoundTripLab } from './RoundTripLab';
 import { HappensBeforeLab } from './HappensBeforeLab';
+import { ChannelLab } from './ChannelLab';
 import type { ComponentPropsWithoutRef } from 'react';
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
@@ -143,6 +144,7 @@ const mdxComponents = {
   ProfileLab,
   RoundTripLab,
   HappensBeforeLab,
+  ChannelLab,
   LockLab,
   Followups,
   SourceList,
