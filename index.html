@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f8faf9" />
+    <meta
+      name="description"
+      content="Go 深入：从原理到工程，从回答到追问。一本可交互、可验证、持续更新的 Go 服务端开发学习手册。"
+    />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>Go 深入 · 服务端开发学习手册</title>
+    <script>
+      try {
+        const savedTheme = localStorage.getItem('go-deeper:theme');
+        document.documentElement.dataset.theme =
+          savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
