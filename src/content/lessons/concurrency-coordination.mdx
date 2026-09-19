@@ -1,0 +1,203 @@
+import { coordinationFollowups } from '../concurrency/coordination';
+import { coordinationScenarios } from '../../lib/coordination-scenarios';
+
+<section id="duties" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 三种等待，不是同一个承诺</div>
+
+## 想等到什么，决定使用什么。
+
+启动三项查询后汇总结果、第一次读取时加载配置、队列有数据时唤醒消费者，都需要协调 goroutine，但它们等待的事实不同。
+
+| 需求                           | 对应工具          | 它没有替你完成的事                             |
+| ------------------------------ | ----------------- | ---------------------------------------------- |
+| 这一批已登记任务都结束         | WaitGroup         | 取消、传递错误、保护任务间的共享修改           |
+| 同一个初始化函数只执行一次     | Once / OnceValues | 保证成功、自动重试、替异步子任务等待完成       |
+| 共享状态发生变化后重新检查条件 | Cond              | 存储通知次数、为被唤醒者预留资源、保证公平排队 |
+
+记住这三句之后，再学 API 才不会混淆：**完成是计数，初始化是一生一次的尝试，条件要在每次醒来后重新确认。**
+
+</section>
+
+<section id="waitgroup" className="lesson-section">
+
+<div className="section-kicker">02 / 计数器看不见尚未登记的工作</div>
+
+## 从零增加的任务，必须先于相应的 Wait 登记。
+
+```go
+var wg sync.WaitGroup
+results := make([]int, len(inputs))
+for i, input := range inputs {
+    wg.Go(func() {
+        results[i] = compute(input)
+    })
+}
+wg.Wait()
+```
+
+Go 1.25 起的 WaitGroup.Go 把登记、启动和返回后的完成计数放在一起。这里假设 compute 正常返回、不 panic，输入在任务执行期间不被并发修改。结果数组事先定长，每个任务只写自己的元素，Wait 返回后调用方再读取它们。示例使用 Go 1.22 起逐次迭代变量的语义。
+
+Go 文档明确要求传给 WaitGroup.Go 的函数不得 panic。它不是 recover 容器，也不会把 panic 转换成 Wait 的返回值；业务错误应以明确结果传递。不要同时给同一个 wg.Go 回调再 defer wg.Done，否则会重复减少计数。
+
+旧版本或更显式的登记方式如下，**Add 位于创建 G 之前**：
+
+```go
+wg.Add(1)
+go func() {
+    defer wg.Done()
+    work()
+}()
+wg.Wait()
+```
+
+把 Add 移到 goroutine 内部时，调用方可能先看到零计数并从 Wait 返回。Wait 不扫描进程中所有 G，也不等待“未来也许会登记”的任务。Sleep 和观察某次输出都不能修补这个顺序。
+
+<Quiz id="con-coordination-add" />
+
+### 不是“Add 永远不能与 Wait 并发”
+
+从零增加计数必须先于等待；**计数已大于零时**，按契约继续登记子任务是允许的。例如一个仍被计入 WaitGroup 的任务可以再调用 Go 启动子任务。不要把解决“零计数窗口”的规则误背成所有 Add 与 Wait 都绝不能重叠。
+
+如果复用 WaitGroup 等待互相独立的下一批任务，新一轮 Go/Add 必须在上一轮所有 Wait 都返回之后发生。计数变负会 panic，使用后不能复制 WaitGroup。一个清晰的拥有者负责登记和等待，比多处随意复用更容易检查。
+
+### 等待结束，不会修复执行期间的竞争
+
+多个任务同时 append 到同一个 slice，或同时写同一 map，并不会因为最后 Wait 就变安全。Wait 建立的是完成后的同步边界；任务之间的共享状态仍需锁、原子协议或明确的数据分区。
+
+<Quiz id="con-coordination-data" />
+
+Wait 也不会感知 Context 取消。要结束任务，任务本身必须能响应取消，然后调用方等待它们实际退出。只在外面开一个 G 执行 Wait，再 select 超时返回，不能保证那个等待者及被等待任务会被回收。
+
+</section>
+
+<section id="once" className="lesson-section">
+
+<div className="section-kicker">03 / 一次执行，不是一直试到成功</div>
+
+## Once 会记住一次尝试，包括失败的尝试。
+
+配置解析只希望做一次，可以用 Go 1.21 起的 OnceValues 保存返回值：
+
+```go
+loadConfig := sync.OnceValues(func() (*Config, error) {
+    return parseConfigFile(path)
+})
+
+cfg, err := loadConfig()
+```
+
+这个闭包实例应该由需要共享初始化结果的调用者共同持有，path 等输入也应稳定。若每次请求里都重新创建一个 OnceValues，就只有“每个新闭包各执行一次”，不能得到整个服务只初始化一次。
+
+首次返回的 cfg 与 err 都会缓存。文件缺失、网络瞬时故障等错误，不会使下一次调用自动重试。所以不可恢复的启动配置与需要重连的数据库资源，要选择不同的生命周期。后者通常需要状态、错误分类、退避和并发重试合并，不能靠 Once 的名字替代这些设计。
+
+<Quiz id="con-coordination-once" />
+
+| 情况             | Once.Do                                           | OnceFunc / OnceValue / OnceValues               |
+| ---------------- | ------------------------------------------------- | ----------------------------------------------- |
+| 初始化正常结束   | 后续调用不再执行 f                                | 后续调用复用结果，或直接返回                    |
+| f 发生 panic     | 本次 panic 传播；若被外层恢复，后续 Do 不再调用 f | 每次调用都会以同一个值 panic，但 f 仍只执行一次 |
+| 初始化返回 error | Do 本身不处理返回值，需自己保存                   | OnceValues 缓存包含 error 的整组结果            |
+
+多个调用者不会在初始化函数还没返回时就从对应的一次性调用中越过去。这比一个简单 CAS 的 done 标志更强：若先把 done 设为 true 再初始化，其他 G 可能看到“完成”却读到半成品。
+
+初始化函数也不能递归调用同一个 Once.Do，否则会等待自己的完成。若 f 只是启动一个后台 G 然后立即返回，Once 等到的也是 f 返回，**不是后台初始化真正完成**。需要后台结果时，要把其完成协议明确接回来。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">04 / 让承诺落在具体时刻</div>
+
+## 同样被唤醒，后续责任并不相同。
+
+<ScenarioPlayer
+  title="完成与条件时间线"
+  scenarios={coordinationScenarios}
+  boundary="三组固定教学交错，分别表达登记完成、缓存错误和条件重检。不是运行时调度仿真，也不根据播放速度推导等待时长。真实 Go 示例通过 WaitGroup、OnceValues 和 synctest 中的 Cond 验证相同契约；实验没有穷尽所有合法调度。"
+/>
+
+Cond 场景里的 G2 确实被 Broadcast 唤醒了，只是数据先被 G1 消费。接下来它有没有权利继续执行，必须由此刻的队列状态决定。
+
+</section>
+
+<section id="cond" className="lesson-section">
+
+<div className="section-kicker">05 / 通知是再检查的机会</div>
+
+## Wait 返回前已经重新加锁，但条件仍可能不成立。
+
+Cond 关联一把锁 L。等待者在持锁状态下检查条件；调用 Wait 时，原子地释放锁并进入等待；被通知后重新取得锁，然后 Wait 才返回。这样不会在“检查条件”和“准备等待”之间留下一个没有保护的通知窗口。
+
+<Callout title="不要把其他系统的虚假唤醒规则照搬到 Go" kind="fact">
+  Go 明确保证 Cond.Wait 不会在没有被 Signal 或 Broadcast 唤醒的情况下返回。
+  但唤醒后拿到锁时，条件可能已经被别人消耗或改变。因此仍应循环检查条件，理由是状态竞争，而不是声称
+  Go Wait 会无通知地随机返回。
+</Callout>
+
+<Quiz id="con-coordination-cond" />
+
+以队列为例，把“已有数据”和“已关闭”共同作为等待条件：
+
+```go
+func (q *Queue) Pop() (int, bool) {
+    q.mu.Lock()
+    defer q.mu.Unlock()
+    for len(q.items) == 0 && !q.closed {
+        q.ready.Wait()
+    }
+    if len(q.items) == 0 { return 0, false }
+    value := q.items[0]
+    q.items = q.items[1:]
+    return value, true
+}
+
+func (q *Queue) Close() {
+    q.mu.Lock()
+    q.closed = true
+    q.ready.Broadcast()
+    q.mu.Unlock()
+}
+```
+
+这是协议片段：Queue 构造时必须用 `sync.NewCond(&q.mu)` 设置 ready；所有 items 与 closed 访问都使用 q.mu。生产者也在同一锁下检查 closed、追加元素并 Signal。这里选择“关闭后排空已有数据，再返回 false”；未包含容量控制，完整背压在后面的任务池一节展开。若元素持有引用，还需考虑取出后清零旧槽避免延长存活。
+
+### Signal 不是存到未来的一个许可
+
+没有等待者时 Signal 不保存通知。若状态已经满足，后来者应该在检查时直接继续，而不是仍然无条件 Wait。正因为事实存储在状态里，通知才可以只是提醒，不必承担记忆功能。
+
+Signal 唤醒一个等待者，Broadcast 唤醒所有等待者；二者都不承诺谁先抢到锁，也不保证被唤醒者优于新来的锁竞争者。API 允许调用者在不持有 L 时发通知，但**条件本身的读写仍需遵守锁协议**。为可读性，把状态修改和必要通知放在清晰的临界区往往更容易验证。
+
+单次广播事件可以用关闭 channel 表达，任务数据流通常也更适合 channel。Cond 的价值是围绕已有共享状态等待可重复变化的谓词，而不是在所有场合替换 channel。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 等到了什么，仍然没等到什么</div>
+
+## 生命周期的终点，要由具体协议说明。
+
+<Followups items={coordinationFollowups} />
+
+面试表达：“WaitGroup 等已登记任务完成，Go 1.25 可以用 Go 方法合并启动与计数；它不提供互斥和取消。Once 只执行一次，失败不代表会重试。Cond 把受锁保护的条件与等待联系起来，通知之后重新加锁并循环检查，而不是把信号当成一定有资源。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 先登记，再等待；醒来后，再判断</div>
+
+## 把完成、尝试和条件分别记住。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>Wait 等登记 · Once 记尝试 · Cond 重判断 · 通知不保留资源</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1。WaitGroup.Go 需 Go 1.25，Once 的返回闭包助手需 Go 1.21。`examples/go/coordination` 验证完成发布、空计数与后续登记、panic 和错误缓存、两个消费者争一份数据、Signal 不存储许可。Cond 测试使用 synctest 控制阻塞点，避免猜测 Sleep 时长。
+
+<SourceList />
+<LessonFinish />
+
+</section>

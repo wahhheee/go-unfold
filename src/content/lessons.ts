@@ -17,6 +17,7 @@ import { channelsLesson } from './concurrency/channels';
 import { selectLesson } from './concurrency/select';
 import { mutexLesson } from './concurrency/mutex';
 import { atomicLesson } from './concurrency/atomic';
+import { coordinationLesson } from './concurrency/coordination';
 
 export type LessonDefinition = {
   id: string;
@@ -70,6 +71,7 @@ export const lessons: LessonDefinition[] = [
   selectLesson,
   mutexLesson,
   atomicLesson,
+  coordinationLesson,
 ];
 
 export function findLesson(id: string) {

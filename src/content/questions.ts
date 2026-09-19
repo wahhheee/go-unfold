@@ -13,6 +13,7 @@ import { channelsQuestions } from './concurrency/channels';
 import { selectQuestions } from './concurrency/select';
 import { mutexQuestions } from './concurrency/mutex';
 import { atomicQuestions } from './concurrency/atomic';
+import { coordinationQuestions } from './concurrency/coordination';
 
 export type Question = {
   id: string;
@@ -96,6 +97,7 @@ export const questions: Question[] = [
   ...selectQuestions,
   ...mutexQuestions,
   ...atomicQuestions,
+  ...coordinationQuestions,
 ];
 
 export function getQuestion(id: string): Question {

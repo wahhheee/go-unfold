@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test';
 
+test('同步时间线：完成、错误缓存与条件重检', async ({ page }) => {
+  await page.goto('/learn/concurrency-coordination#lab');
+  const lab = page.getByRole('region', { name: '完成与条件时间线' });
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('读取完成结果');
+  await lab.getByRole('combobox').selectOption('once');
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('仍为首次错误');
+  await lab.getByRole('combobox').selectOption('cond');
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('不是无通知的虚假唤醒');
+  await lab.getByRole('button', { name: '上一步' }).click();
+  await expect(lab.locator('.scenario-stage h3')).toHaveText('G1 先获得锁并消费');
+});
+
 test('快照实验：浅复制污染、独立版本与发布后写入', async ({ page }) => {
   await page.goto('/learn/concurrency-atomic#lab');
   const lab = page.getByRole('region', { name: '原子快照与别名实验' });
