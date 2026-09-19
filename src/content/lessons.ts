@@ -5,6 +5,7 @@ import { preface, sources } from './curriculum';
 import { typesLesson } from './go/types';
 import { interfacesLesson } from './go/interfaces';
 import { genericsLesson } from './go/generics';
+import { sequencesLesson } from './go/sequences';
 
 export type LessonDefinition = {
   id: string;
@@ -46,6 +47,7 @@ export const lessons: LessonDefinition[] = [
   typesLesson,
   interfacesLesson,
   genericsLesson,
+  sequencesLesson,
 ];
 
 export function findLesson(id: string) {

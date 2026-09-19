@@ -101,3 +101,23 @@ test('泛型实验：类型集与 comparable 例外', async ({ page }) => {
     lab.locator('.constraint-row').filter({ has: page.getByText('[]int', { exact: true }) }),
   ).toContainText('不满足');
 });
+
+test('切片实验：共享追加与容量隔离', async ({ page }) => {
+  await page.goto('/learn/go-sequences#lab');
+  const lab = page.getByRole('region', { name: '切片别名实验' });
+  await lab.getByRole('button', { name: '执行 append' }).click();
+  await expect(lab.locator('.memory-cells b')).toHaveText(['10', '20', '99', '40']);
+  await lab.getByRole('button', { name: '执行 b[0] = 7', exact: true }).click();
+  await expect(lab.locator('.memory-cells b')).toHaveText(['7', '20', '99', '40']);
+  await lab.getByRole('combobox').selectOption('limit');
+  await lab.getByRole('button', { name: '执行 append' }).click();
+  await lab.getByRole('button', { name: '执行 b[0] = 7', exact: true }).click();
+  await expect(lab.locator('.memory-cells b')).toHaveText(['10', '20', '30', '40']);
+  await expect(lab.getByRole('status')).toContainText('没有改变');
+  await lab.getByRole('combobox').selectOption('share');
+  await lab.getByRole('spinbutton', { name: '初始切片长度' }).fill('4');
+  await lab.getByRole('spinbutton', { name: '追加的整数' }).fill('55');
+  await lab.getByRole('button', { name: '执行 append' }).click();
+  await expect(lab.locator('.slice-descriptors')).toContainText('[10 20 30 40 55]');
+  await expect(lab.getByRole('status')).toContainText('不再共享');
+});

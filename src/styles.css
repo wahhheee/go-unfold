@@ -1090,6 +1090,58 @@ strong {
   padding: 16px 20px;
   gap: 0 24px;
 }
+.slice-memory {
+  padding: 20px;
+  background: var(--soft);
+}
+.slice-memory > div > strong {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.memory-cells {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.memory-cells > span {
+  display: grid;
+  min-height: 64px;
+  align-content: center;
+  text-align: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 4px;
+}
+.memory-cells small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.memory-cells b {
+  color: var(--heading);
+  font-size: 17px;
+}
+.slice-descriptors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  font-size: 12px;
+  line-height: 2;
+}
+.slice-memory > p {
+  margin: 14px 0 0;
+  color: var(--secondary);
+  font-size: 12px;
+}
+.concept-controls input[type='number'] {
+  max-width: 82px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
 .constraint-row {
   min-height: 48px;
   display: flex;

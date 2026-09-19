@@ -1,0 +1,158 @@
+import { sequenceFollowups } from '../go/sequences';
+
+<section id="arrays" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 值本身，与值指向的存储</div>
+
+## 数组包含元素，切片描述一段数组。
+
+`[3]int` 和 `[4]int` 是不同类型，长度是数组类型的一部分。数组赋值复制全部元素的值。切片 `[]int` 的长度不属于类型；可以把切片理解为连接底层数组的一段视图，包含起点、长度和容量这三个逻辑信息。
+
+```go
+a := [3]int{1, 2, 3}
+b := a
+b[0] = 9
+fmt.Println(a, b) // [1 2 3] [9 2 3]
+
+s := a[:2]
+t := s
+t[0] = 8
+fmt.Println(a, s) // [8 2 3] [8 2]
+```
+
+第二次复制的是切片值，两个切片继续指向同一数组。**Go 没有因为类型换成 slice 就改用另一套传参规则。** 传参依然复制值，只是值所连接的存储不同。
+
+`len(s)` 决定能通过索引访问的范围，`cap(s)` 决定从切片起点到可扩展上界的元素数。索引必须小于 len；切片重切可以在容量边界内扩大长度。零长度不一定是 nil，nil 切片则长度、容量都是 0。
+
+数组和切片也会影响 range：对数组值求值可涉及数组复制，切片 range 则复制切片值并共享数组。迭代次数按开始时求得的长度确定；循环中 append 后新增加的元素不会因此自动进入本次遍历。`for _, v := range s` 中的 v 是元素值的副本，不是元素的别名。需要改元素时常用索引 `s[i]`。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 先画数组，再更新描述符</div>
+
+## append 的两个分支，取决于容量够不够。
+
+```go
+base := []int{10, 20, 30, 40}
+a := base[:2]
+b := a
+b = append(b, 99)
+b[0] = 7
+fmt.Println(a, b, base) // [7 20] [7 20 99] [7 20 99 40]
+```
+
+容量足够时，append 复用原数组并写入新元素；容量不足时分配新底层数组并复制原有元素。append 返回更新后的切片值，所以通常必须写 `b = append(b, value)`。只在函数内部给形参重新赋值，不会更新调用者的切片描述符。
+
+<SliceLab />
+
+把初始长度改成 4，再试一次普通赋值模式。此时容量已满，追加会把 b 与原数组分离。相比死记一组输出，能根据 len、cap 和共享关系逐步推出结果，更经得住面试官换数字。
+
+<Quiz id="go-slice-append" />
+
+</section>
+
+<section id="ownership" className="lesson-section">
+
+<div className="section-kicker">03 / 限制容量，不等于隔离已有数据</div>
+
+## 三下标限制追加；复制才建立独立元素存储。
+
+完整切片表达式 `s[low:high:max]` 的长度为 `high-low`，容量为 `max-low`。例如 `s[:len(s):len(s)]` 把容量限制到当前长度；此时追加非零个元素需要新数组，但在追加之前改 `s[0]` 仍然修改原数组。
+
+| 操作              | 是否复制已有元素 | 影响                               |
+| ----------------- | ---------------- | ---------------------------------- |
+| `t = s`           | 否               | 两份描述符共享数组                 |
+| `slices.Clip(s)`  | 否               | 等价于三下标限制容量               |
+| `slices.Clone(s)` | 是，浅复制       | 新元素存储，保留 nilness           |
+| `clear(s)`        | 否               | 将当前长度内元素清零，长度容量不变 |
+
+`Clone` 不是递归复制器：`[]*User` 的元素指针仍指向同一批用户。需要固定长度、明确容量的副本时，也可以 `make` 后 `copy`。`copy` 复制数量是两边长度的较小值，并允许源与目标重叠。
+
+### 小视图为什么可能保留大对象
+
+一个小切片仍引用原大数组时，数组可能继续存活；把 cap 限小不会改变这条可达关系。需要长期保存少量元素时，可以独立复制，再释放其他指向原数组的引用。子字符串也可能保留较大字符串存储，必要时可用 `strings.Clone`，但不要无条件复制每个短字符串。
+
+<Quiz id="go-slice-clip" />
+
+### 删除也要管旧尾部
+
+```go
+items := []*User{u1, u2, u3}
+items = slices.Delete(items, 1, 2)
+```
+
+Go 1.22 起 `slices.Delete` 会清零被缩短后不再使用的尾部元素，避免旧指针无意保留对象。要使用返回值，旧别名也可能观察到移动与清零。手写删除、自己维护对象池时，需要亲自检查尾部引用。
+
+默认 `encoding/json.Marshal` 区分 nil 的 `[]int` 和非 nil 空 `[]int`：前者 `null`，后者 `[]`。`omitempty` 等字段选项、具体编码器和 `[]byte` 的特殊 base64 规则需要另外判断。API 的“缺省”和“空集合”不是单靠 len 就能表达的。
+
+<Quiz id="go-slice-nil" />
+
+</section>
+
+<section id="strings" className="lesson-section">
+
+<div className="section-kicker">04 / 先问长度的单位是什么</div>
+
+## string 是不可变字节序列，不保证内容是合法 UTF-8。
+
+```go
+s := "Go中"
+fmt.Println(len(s), utf8.RuneCountInString(s)) // 5 3
+for i, r := range s {
+    if i > 0 { fmt.Print(" ") }
+    fmt.Printf("%d:%U", i, r)
+}
+// 0:U+0047 1:U+006F 2:U+4E2D
+```
+
+`len(s)` 和 `s[i]` 使用字节单位，`s[i]` 得到 byte；range 按 UTF-8 解码得到 rune，i 仍是起始字节偏移。`rune` 是 int32 的别名，用来表示 Unicode 码点，但并非每个 int32 值都代表合法 Unicode 标量值。
+
+一个用户看见的字符还可能由多个码点组合，例如字母与组合附加符号。截断昵称、移动光标、计算展示宽度，不能机械地把“转换成 []rune”当作全部 Unicode 处理方案。需要按具体需求选择字素簇分段、规范化或终端宽度规则。
+
+```go
+bad := string([]byte{0xff, 'A'})
+fmt.Println(utf8.ValidString(bad)) // false
+for i, r := range bad {
+    if i > 0 { fmt.Print(" ") }
+    fmt.Printf("%d:%U", i, r)
+}
+// 0:U+FFFD 1:U+0041
+```
+
+遇到非法 UTF-8，range 产生 RuneError 并前进一个字节。把任意 string 转 `[]rune` 再转回 string 可能改变原始字节，因此它不能作为二进制透明的往返操作。协议载荷应按协议决定使用 `[]byte` 还是经过验证的文本。
+
+<Quiz id="go-string-unicode" />
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">05 / 把对象身份带到每一次操作中</div>
+
+## 共享、容量、可达性，各回答一个问题。
+
+<Followups items={sequenceFollowups} />
+
+面试表达：“我先画底层数组，再标每个切片的起点、len、cap。append 先判断容量，接住返回的新描述符；三下标只限制容量，不隔离原有元素。内存保留看引用是否还在，字符串则先区分字节、码点和用户感知字符。扩容倍率与分配次数属于实现观察，要说明版本。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">06 / 先画关系，再算结果</div>
+
+## 描述符会复制，底层数据可能共享。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>len 管索引 · cap 管扩展 · 回收看可达 · 字符串先定单位</strong>
+</div>
+
+核验日期：2026-09-19，基线 Go 1.27。`slices.Delete` 尾部清零注明 Go 1.22 起；精确容量增长不作为承诺。`examples/go/sequences` 验证三种复制模式、数组值、重叠 copy、删除清零、JSON 与非法 UTF-8。
+
+<SourceList />
+<LessonFinish />
+
+</section>
