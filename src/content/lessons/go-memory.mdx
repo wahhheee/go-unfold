@@ -1,0 +1,162 @@
+import { memoryFollowups } from '../go/memory';
+
+<section id="escape" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 分配语法，不等于物理存储位置</div>
+
+## 编译器先问：这个对象会被使用到什么时候？
+
+函数局部变量、new、make、取地址、接口转换，都不能单独充当“必在堆上”的判定器。语言要求对象在合法使用期间有效；编译器根据可达范围、生命周期、内联及其他约束，决定用寄存器、栈、堆，或者直接消除对象。
+
+```go
+func Local() int {
+    p := new(int)
+    *p = 7
+    return *p
+}
+
+var Saved *int
+
+func Save() {
+    value := 7
+    Saved = &value
+}
+```
+
+Local 中指针没有被带出调用，对象可能完全被优化掉。Save 则把局部地址存进全局可达位置，需要在函数返回后继续有效。Go 不会让调用者得到一个按词法作用域销毁的悬空局部变量。
+
+在示例模块目录运行下面命令，可以查看当前编译器的解释。输出是构建条件下的分析结果，不是语言定律：
+
+```bash
+go test -gcflags=-m=2 ./memory
+```
+
+本节示例文件中的 Local 与 Save 会显示不同存储判断。调用是否内联、结果是否被保存、对象尺寸等都可能改变结果；给代码加一条格式化打印也可能引入新逃逸。优化前先找实际热点，不要为“逃逸报告零告警”扭曲清晰代码。
+
+<Quiz id="go-memory-new" />
+
+栈也不是零成本：goroutine 栈会按需要增长，增长可能复制栈并调整相关指针。堆分配则可能利用按尺寸组织的缓存和空闲空间。固定初始栈大小、分配档位和内部缓存名字适合带版本阅读源码，不适合当作跨版本性能证明。
+
+</section>
+
+<section id="collector" className="lesson-section">
+
+<div className="section-kicker">02 / 回收不可达对象，不理解业务是否还需要它</div>
+
+## 从根沿指针走，决定哪些对象仍然活着。
+
+全局变量、活动栈以及运行时持有的引用构成根的一部分。若存在从根到对象的可达路径，GC 通常需要保留它，即便业务早已不再使用。忘记从全局 map 删除条目、保留一个大数组的小切片、泄漏一个带大缓冲区的 G，都可能让“业务垃圾”仍然可达。
+
+当前 Go 收集器仍是并发标记清扫，使用写屏障，非分代且不做堆压缩。三色模型可帮助理解：白色代表尚未发现，灰色代表已发现但还需扫描，黑色代表已扫描。它是推理模型，不要求每个对象都保存字面意义的三种颜色字段。
+
+应用在并发标记期间仍可能改变指针关系。如果刚扫描完一处引用，应用又移动或删除了关键指针，收集器就可能漏掉本来应该保留的对象。写屏障与扫描协议协调这些变化，维护正确的可达性判断；它不会把业务上的数据竞争变成安全访问。
+
+典型周期包含阶段切换时的 STW、并发标记、标记终止以及清扫工作。应用分配很快时还可能承担辅助标记。**“并发 GC”不等于“没有暂停”，更不等于“不占 CPU”。**
+
+### Green Tea 已经是默认实现的一部分
+
+Green Tea 在 Go 1.25 作为实验出现，从 Go 1.26 起默认启用。它改进标记与小对象扫描的局部性、批处理和 CPU 扩展性；不能因此把 Go 描述成分代复制收集器，也不能把官方基准的改善范围直接当成每个服务的加速保证。
+
+读旧文章时要分别问：它解释的是可达性与屏障这种基本机制，还是某个旧版本的具体扫描组织方式？前者可能仍有用，后者要对照当前源码。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / GOGC 选择内存与回收成本之间的取舍</div>
+
+## 堆目标包括存活量，也受根扫描量影响。
+
+官方 GC 指南给出的近似关系是：目标堆 = 上轮存活堆 +（上轮存活堆 + 根扫描量）× GOGC / 100。Go 1.18 起根集合参与这一预算。GOGC=100 不是在所有情况下都简单把存活堆翻倍。
+
+<GCBudgetLab />
+
+保持其他条件不变，把 GOGC 从 100 提高到 200，增长预算翻倍，但目标堆不会简单翻倍，因为原有存活堆没有因此翻倍。分配速率越高，相同增长预算越快被用完；缩减分配率往往能减少回收工作，而不必先动全局参数。
+
+堆目标不是一个固定的“达到才开始 GC”的触发点。运行时需要提前启动并发标记，力争在目标附近完成；突发分配、最小堆目标、内存限制和调度情况都会影响实际过程。实验中的周期频率是稳态估算，不代表真实 GC 次数、暂停时间或 CPU 占用。
+
+<Quiz id="go-memory-goal" />
+
+</section>
+
+<section id="limit" className="lesson-section">
+
+<div className="section-kicker">04 / 把内存账本的口径写清楚</div>
+
+## GOMEMLIMIT 管理软预算，不能保证容器永不 OOM。
+
+Go 1.19 起可设置 GOMEMLIMIT，或调用 `debug.SetMemoryLimit`。它约束的口径接近 `runtime.MemStats.Sys - runtime.MemStats.HeapReleased`，也就是 Go 运行时管理、尚未归还的内存，而不是只看活对象大小，也不是进程总 RSS。
+
+```bash
+GOMEMLIMIT=384MiB ./server
+```
+
+这是示意配置，不能直接当成所有 512 MiB 容器的推荐值。C 库分配、某些外部映射、二进制及其他运行环境开销都可能不在同一口径内；要结合部署情况、突发和测量保留余量。
+
+限制是软的。存活数据本身已经超过预算时，GC 无法把仍需要的对象变成垃圾；过低预算还会引起频繁回收。运行时为了让应用继续取得进展，可能超过预算。`GOGC=off` 关闭基于比例的目标后，内存限制仍可驱动 GC，不等于所有回收都被禁用。
+
+<Quiz id="go-memory-limit" />
+
+排查内存时可分四层：当前对象还活着多少、累计分配有多少、Go 运行时保留了多少、进程与容器实际统计了多少。下一节会用 inuse_space 与 alloc_space 进一步区分存量与流量。
+
+</section>
+
+<section id="retention" className="lesson-section">
+
+<div className="section-kicker">05 / 少分配，还要少意外保留</div>
+
+## sync.Pool 适合可丢弃的临时对象复用。
+
+```go
+var buffers = sync.Pool{
+    New: func() any { return new(bytes.Buffer) },
+}
+
+func Encode(value string) []byte {
+    b := buffers.Get().(*bytes.Buffer)
+    b.Reset()
+    defer buffers.Put(b)
+    b.WriteString(value)
+    return bytes.Clone(b.Bytes()) // 返回独立数据，再归还缓冲区
+}
+```
+
+这是所有权示例，不是“必然更快”的优化方案。若直接返回 `b.Bytes()`，函数退出后缓冲区就可能被下一次使用者覆盖，返回的数据仍然指向可复用存储。为演示安全边界这里主动复制；实际工程应根据编码接口和测量选择复用方式。
+
+Pool 条目可以在任何时候被自动移除，Get 也不保证对应上一次 Put。它没有持久性、按键查找或容量上限的业务契约。大缓冲区还可能增加保留内存，真实池设计常需要限制可归还对象的容量，清理指针字段，并禁止归还后继续使用。
+
+<Quiz id="go-memory-pool" />
+
+优化顺序通常从证据出发：先确认分配热点或保留路径，再减少重复转换和临时对象，评估是否可预分配或缩短引用生命周期，最后再决定是否需要 Pool。减少分配次数与减少峰值内存可能是不同方向，不能只追一个数字。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 让解释落到可复验的证据</div>
+
+## 活得久、分得快、扫得多，是不同的问题。
+
+<Followups items={memoryFollowups} />
+
+面试表达：“逃逸是编译器对生命周期的分析，不是看到 new 就判堆分配。GC 从根追踪可达对象，通过并发标记、写屏障和阶段暂停完成回收；当前默认 Green Tea 优化扫描组织。GOGC 调增长预算，GOMEMLIMIT 提供 Go 管理内存的软限制。优化要同时看分配流量、存活量和实际延迟。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 每个数字，都要标明口径</div>
+
+## 回收看可达，优化看画像，配置看预算。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>new 不定栈堆 · 可达不回收 · 目标含根 · 软限制非 RSS</strong>
+</div>
+
+核验日期：2026-09-19。基线 Go 1.27.1；根集合预算 1.18、软内存限制 1.19、Green Tea 默认启用 1.26。`examples/go/memory` 提供逃逸诊断输入、生命周期与 Pool 输出独立性验证，实验不承诺某次 GC 的具体时刻。
+
+<SourceList />
+<LessonFinish />
+
+</section>

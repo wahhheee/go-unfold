@@ -157,3 +157,17 @@ test('调度时间线：阻塞线程移交 P 与播放控制', async ({ page }) 
   await lab.getByRole('button', { name: '上一步', exact: true }).click();
   await expect(lab.getByRole('status')).toContainText('重新变成可运行');
 });
+
+test('GC 实验：增长预算与根集合', async ({ page }) => {
+  await page.goto('/learn/go-memory#lab');
+  const lab = page.getByRole('region', { name: 'GC 堆目标实验' });
+  await expect(lab.locator('.gc-metrics')).toContainText('18.0 MiB');
+  await expect(lab.locator('.gc-metrics')).toContainText('2.00 / s');
+  await lab.getByRole('slider', { name: 'GOGC', exact: true }).focus();
+  await page.keyboard.press('End');
+  await expect(lab.locator('.gc-metrics')).toContainText('38.0 MiB');
+  await lab.getByRole('spinbutton', { name: '根扫描量 MiB' }).fill('4');
+  await expect(lab.locator('.gc-metrics')).toContainText('44.0 MiB');
+  await lab.getByRole('button', { name: '重置 GC 参数' }).click();
+  await expect(lab.locator('.gc-metrics')).toContainText('18.0 MiB');
+});
