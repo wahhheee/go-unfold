@@ -1,0 +1,189 @@
+import { errorFollowups } from '../go/errors';
+import { deferScenarios } from '../../lib/defer-scenarios';
+
+<section id="errors" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 调用方需要决定下一步，而不只是打印一句话</div>
+
+## 错误身份、上下文与处理策略分别设计。
+
+读取用户失败后，调用者可能需要返回“查无此人”、重试临时故障，或结束已取消的请求。只比较 `err.Error()` 文本会让逻辑依赖措辞和内部细节；稳定的 sentinel、错误类型或行为契约更适合机器判断。
+
+```go
+var ErrMissing = errors.New("missing")
+
+err := fmt.Errorf("load user: %w", ErrMissing)
+fmt.Println(err == ErrMissing)          // false
+fmt.Println(errors.Is(err, ErrMissing)) // true
+```
+
+`%w` 保留包装关系，`%v` 只参与格式化文本。`errors.Is` 检查当前错误及其后代，还支持错误类型自定义的 Is 匹配协议；它不是简单的字符串比较。两次 `errors.New("missing")` 即使文本相同，也产生不同错误值。
+
+无错误应直接返回 nil。不要把 nil 具体错误指针装进 error 返回，也不要不检查 err 是否为 nil 就套一层 `fmt.Errorf`；格式化并不会帮你把成功路径变成 nil。
+
+<Quiz id="go-error-wrap" />
+
+### 从错误树中提取类型
+
+```go
+type FieldError struct { Field string }
+func (e *FieldError) Error() string { return "invalid field: " + e.Field }
+
+err := fmt.Errorf("create account: %w", &FieldError{Field: "email"})
+if field, ok := errors.AsType[*FieldError](err); ok {
+    fmt.Println(field.Field) // email
+}
+```
+
+Go 1.26 新增 `errors.AsType`，用类型参数表达要匹配的错误类型。较早版本可以使用 `var field *FieldError; errors.As(err, &field)`。直接 `err.(*FieldError)` 只检查最外层动态类型，不能自动穿过包装。类型匹配也不修复生产者返回 typed nil 的坏契约，指针值的前提仍需考虑。
+
+</section>
+
+<section id="trees" className="lesson-section">
+
+<div className="section-kicker">02 / 主操作失败，清理也可能失败</div>
+
+## errors.Join 让错误关系从链变成树。
+
+如果读取失败，关闭资源也失败，只返回其中一个会丢掉另一个故障。可以在明确的 API 边界保留两个错误：
+
+```go
+combined := errors.Join(readErr, closeErr)
+if errors.Is(combined, readErr) { /* 保留了读取错误 */ }
+if errors.Is(combined, closeErr) { /* 保留了关闭错误 */ }
+```
+
+这里假设 readErr、closeErr 是两个非 nil 错误。Join 丢弃 nil 参数，所有参数都是 nil 时返回 nil；返回的非 nil 错误提供 `Unwrap() []error`。Go 1.20 起 `fmt.Errorf` 也支持多个 `%w` 操作数。
+
+Is、As 和 AsType 会先检查当前节点，再按子节点顺序深度优先遍历。若存在多个同类型错误，首次匹配的含义要与业务策略一致。不要把“能匹配”误解成“按严重度帮你选择了根因”。
+
+特别容易背错的是 `errors.Unwrap` 辅助函数：它只处理 `Unwrap() error`，不自动展开 `Unwrap() []error`。对 Join 的结果手写单链循环，会遗漏后代错误。
+
+<Quiz id="go-error-join" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 登记、赋值、调用，分成三个时间点</div>
+
+## defer 现在求实参，退出时逆序调用。
+
+```go
+func Observe() {
+    x := 1
+    defer fmt.Println("arg", x)
+    defer func() { fmt.Println("closure", x) }()
+    x = 2
+}
+// 输出：closure 2，然后 arg 1
+
+func Result() (n int) {
+    defer func() { n++ }()
+    return 5
+}
+// 返回 6
+```
+
+第一种 defer 登记时就保存函数值和参数，第二种保存一个闭包，闭包调用时才读变量 x。退出时后登记的先执行。命名返回变量则在 return 表达式求值后先被赋值，defer 仍可以在真正返回调用者之前修改它。
+
+<ScenarioPlayer
+  title="defer 执行时间线"
+  scenarios={deferScenarios}
+  boundary="只展示上方两个固定函数的语言执行顺序，真实输出由 examples/go/errors 核验。没有模拟编译器优化、任意用户代码或跨 goroutine 调用。"
+/>
+
+defer 在其外围函数退出时执行，不是离开任意代码块时执行。即使写在 for 或 if 里，也不会自动变成那一小段的结束动作。若登记的函数值为 nil，通常到执行那个延迟调用时才 panic，不是仅仅登记时就失败。
+
+<Quiz id="go-defer-result" />
+
+</section>
+
+<section id="resources" className="lesson-section">
+
+<div className="section-kicker">04 / 拿到资源，就明确谁负责关闭</div>
+
+## 让作用域覆盖资源的真实使用周期。
+
+下面函数约定接管 reader 的关闭责任；既保留读取失败，也保留关闭失败。reader 必须是有效的非 nil 实现。
+
+```go
+func Drain(r io.ReadCloser) (err error) {
+    defer func() {
+        err = errors.Join(err, r.Close())
+    }()
+    _, err = io.Copy(io.Discard, r)
+    return err
+}
+```
+
+之所以使用闭包，是为了在退出时读取当前 err 并执行 Close。若把有副作用的调用直接放到 defer 的参数表达式里，该参数会在登记时求值，可能提前关闭资源。命名返回值也让清理错误进入最终返回值，而不是静默丢失。
+
+处理一批文件时，把每个文件的打开、处理、关闭放进一个独立函数；每次调用结束就能关闭。不应在外层长循环里不断登记 Close，再期待每一轮都释放句柄。
+
+事务、锁与连接也需要类似责任约定：谁获取、谁释放、何时成功、失败怎样收尾。defer 能减少遗漏路径，但不会替你决定事务是否提交成功、网络超时后外部状态是否已改变。
+
+</section>
+
+<section id="panic" className="lesson-section">
+
+<div className="section-kicker">05 / 恢复边界，比一句 recover 更重要</div>
+
+## panic 沿当前 goroutine 展开，recover 不跨调用栈。
+
+```go
+func Boundary() {
+    defer func() {
+        if value := recover(); value != nil {
+            fmt.Println("recovered:", value)
+        }
+    }()
+    panic("broken invariant")
+}
+```
+
+这个函数用于演示控制流。真实恢复边界还应判断状态是否可继续、保留诊断信息并报告失败。正常业务失败通常返回 error；panic 更适合无法继续当前操作的程序错误或被明确约定的内部展开协议，不能把所有错误都抛成 panic 再统一吞掉。
+
+recover 要由被 defer 调用的函数直接调用，并处在同一个正在 panic 的 goroutine 中。把 recover 藏到该函数再调用的普通帮助函数里，或只写 `defer recover()`，不能建立想象中的恢复边界。父 goroutine 的 defer 也不能捕获子 goroutine 的 panic。
+
+恢复后不会从 panic 的下一行继续。相关调用栈已被展开，恢复所在函数按规则执行剩余 defer 后返回其调用者。更不能因此自动回滚已经写过的数据库或共享状态。
+
+<Quiz id="go-recover-boundary" />
+
+### 几个必须区分的退出方式
+
+Go 1.21 起，默认情况下 `panic(nil)` 会得到非 nil 的 `*runtime.PanicNilError`，不要继续套用旧版 recover 返回 nil 的解释；兼容行为还受语言版本和 GODEBUG 影响。`runtime.Goexit` 会运行当前 goroutine 的 defer，但它不是 panic，recover 返回 nil。`os.Exit` 则直接退出进程，不执行普通 defer。
+
+运行时 fatal，例如某些检测到的并发 map 访问，也不提供普通 recover 恢复保证。一个统一恢复中间件不能证明应用已经“不会崩”。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 错误传播与状态恢复一起考虑</div>
+
+## 捕获了异常，不等于恢复了正确状态。
+
+<Followups items={errorFollowups} />
+
+面试表达：“error 是可处理的返回契约，我用包装保留上下文，用 Is 和 AsType 匹配语义。多个失败可以 Join 成树。defer 登记时求实参，在返回赋值之后逆序执行，适合表达资源责任。recover 只作用于同一 goroutine 的有效延迟调用边界，不回滚副作用，也不把失败变成成功。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 对失败路径也说出完整顺序</div>
+
+## 识别错误，保留上下文，完成清理，明确失败。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>Is 认语义 · AsType 取类型 · defer 先存后调 · recover 不跨 G</strong>
+</div>
+
+核验日期：2026-09-19，基线 Go 1.27。Join 与多 %w 从 1.20 起，panic(nil) 默认行为变化从 1.21 起，AsType 从 1.26 起。`examples/go/errors` 验证包装树、清理双错误、defer、命名返回值，并用独立子进程验证跨 goroutine 的 panic 无法被父级 recover 捕获。
+
+<SourceList />
+<LessonFinish />
+
+</section>

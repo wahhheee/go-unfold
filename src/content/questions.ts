@@ -6,6 +6,7 @@ import { mapQuestions } from './go/maps';
 import { schedulerQuestions } from './go/scheduler';
 import { memoryQuestions } from './go/memory';
 import { performanceQuestions } from './go/performance';
+import { errorQuestions } from './go/errors';
 
 export type Question = {
   id: string;
@@ -82,6 +83,7 @@ export const questions: Question[] = [
   ...schedulerQuestions,
   ...memoryQuestions,
   ...performanceQuestions,
+  ...errorQuestions,
 ];
 
 export function getQuestion(id: string): Question {

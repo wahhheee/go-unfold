@@ -186,3 +186,14 @@ test('画像视角：累计分配与存活内存独立', async ({ page }) => {
   await expect(lab.locator('.profile-row').first()).toContainText('decodeBuffer');
   await expect(lab.locator('.profile-bars')).toContainText('22.0 MiB');
 });
+
+test('defer 时间线：实参快照与命名返回值', async ({ page }) => {
+  await page.goto('/learn/go-errors#lab');
+  const lab = page.getByRole('region', { name: 'defer 执行时间线' });
+  for (let i = 0; i < 5; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('closure 2；arg 1');
+  await lab.getByRole('combobox').selectOption('result');
+  for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('返回 6');
+  await expect(lab.getByRole('button', { name: '下一步' })).toBeDisabled();
+});
