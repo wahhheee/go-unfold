@@ -3700,6 +3700,18 @@ strong {
 .concept-controls .check-setting {
   margin-right: auto;
 }
+.interleaving-summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+.interleaving-lab .concept-controls label {
+  min-width: 0;
+  max-width: 100%;
+}
+.interleaving-lab select {
+  min-width: 0;
+  max-width: 100%;
+}
 .check-setting input {
   accent-color: var(--accent);
 }

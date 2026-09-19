@@ -1,5 +1,29 @@
 import { expect, test } from '@playwright/test';
 
+test('交错枚举：丢失更新、顺序执行和原子加一', async ({ page }) => {
+  await page.goto('/learn/concurrency-diagnostics#lab');
+  const lab = page.getByRole('region', { name: '交错执行实验' });
+  await expect(page.locator('.interleaving-summary')).toContainText('6 种交错');
+  await lab.getByRole('combobox').selectOption('split-1');
+  for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('只得到 1');
+  await lab.getByRole('button', { name: '上一步' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('4 / 5');
+  await lab.getByRole('combobox').selectOption('split-0');
+  for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('保留了两次更新');
+  await page.getByRole('combobox', { name: '更新方式' }).selectOption('add');
+  await expect(page.locator('.interleaving-summary')).toContainText('2 种交错');
+  for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes > div').first()).toHaveText('共享计数器2');
+  await lab.getByRole('button', { name: '重新播放' }).click();
+  await lab.getByRole('button', { name: '自动播放' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('2 / 3');
+  await lab.getByRole('button', { name: '暂停播放' }).click();
+  await lab.getByRole('button', { name: '重新播放' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('1 / 3');
+});
+
 test('令牌桶：初始突发、分数补充、立即拒绝与重置', async ({ page }) => {
   await page.goto('/learn/concurrency-rate#lab');
   const lab = page.getByRole('region', { name: '令牌桶与突发实验' });

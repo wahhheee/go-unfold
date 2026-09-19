@@ -72,6 +72,9 @@ const ContextBudgetLab = lazy(() =>
 );
 const PoolLab = lazy(() => import('./PoolLab').then((module) => ({ default: module.PoolLab })));
 const RateLab = lazy(() => import('./RateLab').then((module) => ({ default: module.RateLab })));
+const InterleavingLab = lazy(() =>
+  import('./InterleavingLab').then((module) => ({ default: module.InterleavingLab })),
+);
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
   return (
@@ -182,6 +185,7 @@ const mdxComponents = {
   ContextBudgetLab,
   PoolLab,
   RateLab,
+  InterleavingLab,
   LockLab,
   Followups,
   SourceList,

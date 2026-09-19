@@ -1,0 +1,216 @@
+import { diagnosticsFollowups } from '../concurrency/diagnostics';
+
+<section id="failures" className="lesson-section">
+
+<div className="section-kicker">01 / “并发有问题”还不够具体</div>
+
+## 结果错了，和工作停了，是两类问题。
+
+订单总数偶尔少一笔，服务运行越久 G 越多，接口超时但 CPU 不高。这些现象都可能涉及并发，却没有一个工具能替你一次回答全部问题。先把故障写成可检查的陈述：**哪个结果不对，谁没有前进，什么资源没有归还？**
+
+| 类型                  | 一个具体反例                               | 应寻找的证据                         |
+| --------------------- | ------------------------------------------ | ------------------------------------ |
+| 数据竞争（data race） | 两个 G 对普通变量无同步地读写，至少一个写  | 冲突访问及缺失的 happens-before 关系 |
+| 逻辑竞争              | atomic Load 后 Store，两个加一最终只加了一 | 业务不变量与允许发生的交错           |
+| 死锁                  | G1 持 A 等 B，G2 持 B 等 A                 | 持有关系与无法自行解除的等待环       |
+| 活锁                  | 双方不断让步和重试，却一直没有有效进展     | 状态持续变化，成功条件长期不成立     |
+| 饥饿                  | 某任务长期拿不到需要的资源                 | 分任务等待时间、资源分配与负载条件   |
+| 泄漏                  | 消费者走了，生产者永远卡在发送             | 生命周期已经结束，但任务没有退出路径 |
+
+活锁与饥饿不一定表现为阻塞栈；死锁也不一定让整个进程停住。健康的后台工作者可以长期等任务，不能仅凭“G 活得久”判泄漏。分类的意义是选择证据，而不是给症状贴一个听起来专业的标签。
+
+<Callout kind="fact" title="安全性与活性都要检查">
+  安全性关心“不该发生的事没有发生”，例如库存不变负、更新不丢失；活性关心“该完成的事最终能继续”，例如取消后退出、已接纳任务得到结果。无数据竞争只是其中一项条件。
+</Callout>
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 把“可能交错”变成可以逐步看的反例</div>
+
+## 六种合法交错，不是六次随机抽签。
+
+```go
+var count atomic.Int64
+// 两个 G 各执行一次，结束后由 WaitGroup 等待完成。
+old := count.Load()
+count.Store(old + 1)
+```
+
+每次共享访问都是原子的，但两行之间允许另一条路径插入。Go 的原子操作表现为某个顺序一致的顺序；在这个很小的场景里，可以枚举保持 A、B 各自内部顺序的全部交错。
+
+<InterleavingLab />
+
+选择 A.Load、B.Load 开头的场景，两个局部快照都是 0，后续各自写 1。再选择 A.Load、A.Store 开头的场景，这次得到 2。**一次输出正确，不能消除另一个合法反例。** 把更新改为 atomic Add，两个不可分割的加一无论谁先，最终都得到 2。
+
+<Quiz id="con-diagnostics-atomic" />
+
+六种交错中四种丢失更新，不意味着真实服务出错概率是 2/3。真实调度不会承诺均匀抽取这些序列，输入规模和周边代码也会改变条件。这个实验只证明所列模型存在反例，以及单次 Add 在这里保持计数；它没有证明多字段业务事务也自动原子，更不是普通变量 n++ 的完整内存模型模拟。
+
+</section>
+
+<section id="testing" className="lesson-section">
+
+<div className="section-kicker">03 / 让测试控制交接，不靠等得够久</div>
+
+## race 看冲突访问，断言看业务与退出。
+
+从仓库根目录运行：
+
+```bash
+go -C examples/go test -race -count=1 ./...
+go -C examples/go test -race -shuffle=on -count=5 ./diagnostics ./happensbefore
+go -C examples/go vet ./...
+```
+
+看到 DATA RACE，先沿报告找两条冲突访问的栈，以及创建对应 G 的位置。问清楚共享的具体对象，指出缺少哪条同步边，然后让**所有**访问服从同一协议。只给一处写加锁、把日志加多、调整 GOMAXPROCS 或 Sleep，都不能自动补齐协议。
+
+没有报告，只能说这次执行没有检测到数据竞争。检测器要让相关路径真正运行；它也不会把上一节实验的原子丢失更新自动归为 data race。因此还需要断言最终计数、资源归还、错误传播和派生工作全部退出。
+
+### 用屏障固定关键顺序
+
+要复现两个 G 都先 Load 再 Store，可以让每个 G 读取后向 ready 通道报告，再一起等待 release；测试收到两份 ready 后关闭 release。这个屏障明确保证两次读取都发生在写回之前，不需要猜“一毫秒够不够”。完整可运行反例在 `examples/go/happensbefore`，它在 race 下仍能通过检测，同时验证最终值确实只有 1。
+
+### synctest 控制虚拟时间，但不穷举调度
+
+Go 1.25 起正式提供 testing/synctest。测试气泡中的虚拟时间，在所有任务稳定阻塞时可向前推进；synctest.Wait 让当前测试等到其他 G 稳定阻塞，并建立文档约定的同步关系。
+
+```go
+// 外围在 synctest.Test 中创建 ctx、out、done 和 result。
+go func() {
+    defer close(done)
+    select {
+    case out <- 42:
+    case <-ctx.Done():
+        result = ctx.Err()
+    }
+}()
+synctest.Wait() // 无接收者，发送者已停在 select。
+cancel()
+<-done // 明确确认退出，再读取结果。
+if !errors.Is(result, context.Canceled) {
+    t.Fatal("取消后未完成清理")
+}
+```
+
+完整测试在 `examples/go/diagnostics`。out 是气泡内新建的无缓冲通道且没有接收者；ctx 也在气泡内创建，done 由发送者关闭。这些前提让测试确实覆盖“先阻塞，再取消，再确认退出”，并排除发送成功分支。
+
+<Quiz id="con-diagnostics-synctest" />
+
+“稳定阻塞”是具体的工具契约：气泡内通道操作、满足条件的 select、Cond.Wait、与气泡关联的 WaitGroup.Wait、time.Sleep 等可以被识别。**Mutex 或 RWMutex 的锁等待、真实网络 I/O 和系统调用不因此成为稳定阻塞。** 不要把真实网络测试直接搬进来，就期待虚拟时钟解决一切。
+
+synctest 不是模型检查器；-shuffle 改变测试顺序，fuzz 探索输入，也都不代表覆盖全部 G 的调度。稳妥的组合是：先按语义推理边界，再为关键分支安排确定的交接，用不变量检查结果，最后用 race 和更广的运行条件补充动态证据。
+
+</section>
+
+<section id="lifetime" className="lesson-section">
+
+<div className="section-kicker">04 / 谁创建，谁交代退出</div>
+
+## 每条等待都要能回答：谁会让我继续？
+
+诊断遗留任务，可以沿四个问题追踪：谁拥有这个 G；正常完成靠什么；提前退出靠什么；拥有者在哪里确认收尾。Context 的 cancel 只回答第三问的一部分，它不能让不检查取消的发送、锁等待或业务函数自动返回。
+
+<Quiz id="con-diagnostics-join" />
+
+取消后立刻检查 runtime.NumGoroutine 与开始值完全一致，通常不是可靠的单元测试：运行时和框架有自己的任务，数量变化不直接指出责任。优先对自己创建的工作使用 done、WaitGroup 或任务组建立完成证据；线上再结合数量趋势和多次栈快照判断。
+
+### 泄漏画像补充了一种证据，不是全知判官
+
+Go 1.27 稳定提供 goroutineleak 画像，不再需要 Go 1.26 时的实验开关。它利用 GC 可达性识别一类无法再被唤醒的阻塞任务：例如等待一个只有自己持有、再也不可能收到值的通道。
+
+```go
+// Go 1.27；w 是由调用方提供的 io.Writer。
+if err := pprof.Lookup("goroutineleak").WriteTo(w, 1); err != nil {
+    return err
+}
+```
+
+采集会触发检测所需的 GC 工作，应考虑开销。若同步对象仍可从全局或可运行任务到达，虽然业务已经不会再使用它，检测器也可能无法判定它泄漏。更早版本仍可用 goroutine 栈、生命周期协议和测试排查，不能照搬这里的画像名称或版本结论。
+
+本节把永久阻塞样本放在带超时的独立子进程里，验证画像包含 permanentlyBlocked 后退出进程；不会把有意泄漏留在主测试进程里。数据竞争反例同样在隔离子进程中运行，父测试验证报告与预期退出码，而不是让 CI 永久处于失败状态。
+
+### 死锁要画持有与等待，而不是等运行时报错
+
+G1 持有 A、等待 B；G2 持有 B、等待 A。环内没有释放者能继续，外面的 HTTP 接收循环却可能仍活着，所以进程未必出现全局死锁报告。为多个锁规定一致的取得顺序，是消除这类环的一种办法；同时应避免持锁等待网络、外部回调或需要同一把锁的子任务。
+
+给请求加截止时间，不会中断 Mutex.Lock。`diagnostics` 的可取消等待环样本刻意用通道额度和 select 来表达取消，取消后归还已经持有的资源并等待退出。它证明的是**这个等待协议能够解除**，不能据此声称任意 Mutex 死锁都可以用 Context 修复。
+
+</section>
+
+<section id="profiles" className="lesson-section">
+
+<div className="section-kicker">05 / 先决定要看运行、等待，还是争用</div>
+
+## Unlock 上的时间，不是解锁指令的 CPU 时间。
+
+| 证据            | 主要回答什么                                   | 常见误读                           |
+| --------------- | ---------------------------------------------- | ---------------------------------- |
+| goroutine 栈    | 采集时任务在哪里、卡在哪条调用链               | 某个等待栈存在，就认定泄漏         |
+| CPU 画像        | 被采样到的 CPU 执行花在哪里                    | CPU 低就认为服务健康               |
+| block 画像      | 在通道、锁、WaitGroup 等同步点累计等了多久     | 把所有等待都当成错误               |
+| mutex 画像      | 哪些持锁路径给其他 G 造成争用，通常归到 Unlock | 把累计争用当作 Unlock 自身执行耗时 |
+| execution trace | G 运行、阻塞、唤醒和运行时事件怎样沿时间发生   | 一条录制轨迹能证明所有执行正确     |
+
+<Quiz id="con-diagnostics-profile" />
+
+多个 G 同时等待时，累计等待可以超过采集的墙钟时间。block 和 mutex 画像的采样、归因也不同，不能要求数值完全一样。尚未结束的等待可能还没进入按完成事件记录的样本，因此排查“现在卡住了”还需要 goroutine 快照。
+
+block 与 mutex 采样默认不开启。SetBlockProfileRate 按阻塞时间设置采样，SetMutexProfileFraction 按争用事件比例设置；二者不是同一种参数。测试参数可明确开启采集，值为 1 表示在对应规则下收集全部事件，开销也会增加。空画像首先检查有没有采样和有效负载，不能立即宣布没有争用。
+
+### 实际采集一次，再核对归因
+
+下面在仓库根目录运行，仅对人为制造争用的样本采集；文件写入 /tmp，不进入版本库：
+
+```bash
+go -C examples/go test ./diagnostics -run '^TestContentionWorkload$' -count=1 \
+  -mutexprofile=/tmp/go-deeper-mutex.pprof -mutexprofilefraction=1 \
+  -blockprofile=/tmp/go-deeper-block.pprof -blockprofilerate=1 \
+  -trace=/tmp/go-deeper-concurrency.trace -o /tmp/go-deeper-diagnostics.test
+go tool pprof -top /tmp/go-deeper-diagnostics.test /tmp/go-deeper-mutex.pprof
+go tool pprof -top /tmp/go-deeper-diagnostics.test /tmp/go-deeper-block.pprof
+go tool trace /tmp/go-deeper-concurrency.trace
+```
+
+本次实跑，mutex 画像把主要争用归到 Unlock 所在持锁路径，block 画像能看到 Mutex.Lock 和 WaitGroup.Wait；trace 能解析出 G 状态迁移。具体记录保留在 `examples/go/diagnostics/RESULTS.md`，数字只说明这次负载，不能背成性能基线。样本在临界区内 Sleep 是为制造可观测争用，不是建议的生产写法。
+
+### 线上排障形成闭环
+
+先界定受影响的接口、时间和症状，再对照活跃请求、队列、下游时延与错误。取多个时间点的栈，提出“某处等待没有退出”或“某段临界区过长”的假设；按假设选画像或短时 trace，控制采集开销并保护诊断入口。修复后，用相同业务条件比较结果、等待时长和资源回收，并把触发顺序沉淀为回归测试。
+
+不能只看总 G 数下降或测试变绿：删除后台任务、提前返回漏结果也能让数值变好。验证必须同时检查**业务结果正确和生命周期完整**。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 从“用了工具”追到“证据说明什么”</div>
+
+## 每个结论，附上它覆盖的路径。
+
+<Followups items={diagnosticsFollowups} />
+
+面试表达：“我先区分数据竞争、业务不变量破坏和任务无法退出。race 检查实际执行中的冲突访问，不能替代业务断言；关键交错用屏障或适用的 synctest 稳定构造。线上结合多次 goroutine 栈判断等待责任，用 block 看等待点、mutex 找争用来源，必要时用 trace 还原时序。取消后要确认退出，修复后保留触发路径与回归证据。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 第二章的最后一道检查</div>
+
+## 顺序、所有权、边界、退出，四问贯穿并发。
+
+从内存模型到限流和诊断，反复出现的是同一组责任：同步顺序在哪里建立，共享数据由谁修改，容量与时间边界在哪里生效，所有派生工作由谁确认退出。工具名称是实现选择，这四个问题才是设计评审和面试追问的落点。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>race 查访问 · 断言查结果 · 等待查责任 · 修复留证据</strong>
+</div>
+
+核验日期：2026-09-19。Go 1.27.1 / linux / amd64。真实样本覆盖隔离竞争检测、Go 1.27 泄漏画像、取消后退出、等待环资源归还和 mutex / block / trace 采集。浏览器仅穷举有限原子交错模型；生产故障仍须根据版本、负载和具体等待关系核实。
+
+<SourceList />
+<LessonFinish />
+
+</section>

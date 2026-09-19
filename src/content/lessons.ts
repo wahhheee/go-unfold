@@ -22,6 +22,7 @@ import { contextLesson } from './concurrency/context';
 import { groupsLesson } from './concurrency/groups';
 import { poolLesson } from './concurrency/pool';
 import { rateLesson } from './concurrency/rate';
+import { diagnosticsLesson } from './concurrency/diagnostics';
 
 export type LessonDefinition = {
   id: string;
@@ -80,6 +81,7 @@ export const lessons: LessonDefinition[] = [
   groupsLesson,
   poolLesson,
   rateLesson,
+  diagnosticsLesson,
 ];
 
 export function findLesson(id: string) {

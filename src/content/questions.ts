@@ -18,6 +18,7 @@ import { contextQuestions } from './concurrency/context';
 import { groupsQuestions } from './concurrency/groups';
 import { poolQuestions } from './concurrency/pool';
 import { rateQuestions } from './concurrency/rate';
+import { diagnosticsQuestions } from './concurrency/diagnostics';
 
 export type Question = {
   id: string;
@@ -106,6 +107,7 @@ export const questions: Question[] = [
   ...groupsQuestions,
   ...poolQuestions,
   ...rateQuestions,
+  ...diagnosticsQuestions,
 ];
 
 export function getQuestion(id: string): Question {
