@@ -67,3 +67,17 @@ test('值复制实验：共享与独立复制', async ({ page }) => {
   await expect(lab.locator('.value-cells')).toContainText('20');
   await expect(lab.locator('.value-cells')).toContainText('30');
 });
+
+test('接口实验：typed nil 与不可比较值', async ({ page }) => {
+  await page.goto('/learn/go-interfaces#lab');
+  const lab = page.getByRole('region', { name: '接口状态实验' });
+  await lab.getByRole('button', { name: '验证判断' }).click();
+  await expect(lab.locator('.comparison-results')).toContainText('false');
+  await lab.getByRole('combobox', { name: '接口中的值' }).selectOption('slice');
+  await expect(lab.locator('.comparison-results')).toContainText('待验证');
+  await lab.getByRole('button', { name: '验证判断' }).click();
+  await expect(lab.locator('.comparison-results')).toContainText('panic');
+  await lab.getByRole('combobox', { name: '接口中的值' }).selectOption('nil');
+  await lab.getByRole('button', { name: '验证判断' }).click();
+  await expect(lab.locator('.comparison-results strong')).toHaveText(['true', 'true']);
+});

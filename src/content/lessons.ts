@@ -3,6 +3,7 @@ import type { ComponentType, LazyExoticComponent } from 'react';
 import type { MDXProps } from 'mdx/types';
 import { preface, sources } from './curriculum';
 import { typesLesson } from './go/types';
+import { interfacesLesson } from './go/interfaces';
 
 export type LessonDefinition = {
   id: string;
@@ -42,6 +43,7 @@ export const lessons: LessonDefinition[] = [
     Content: lazy(() => import('./lessons/preface.mdx')),
   },
   typesLesson,
+  interfacesLesson,
 ];
 
 export function findLesson(id: string) {

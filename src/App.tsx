@@ -208,7 +208,11 @@ export function App() {
                   </Link>
                   {isCurrent &&
                     moduleLessons.map((lesson) => (
-                      <Link key={lesson.id} className="current-lesson" to={lesson.path}>
+                      <Link
+                        key={lesson.id}
+                        className={`current-lesson ${currentLesson?.id === lesson.id ? 'active' : ''}`}
+                        to={lesson.path}
+                      >
                         <span />
                         {lesson.shortTitle}
                         {records[lesson.id]?.completed && <Check size={12} />}

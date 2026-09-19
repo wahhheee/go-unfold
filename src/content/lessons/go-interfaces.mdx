@@ -1,0 +1,200 @@
+import { interfaceFollowups } from '../go/interfaces';
+
+<section id="contract" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 从调用方需要什么开始</div>
+
+## 接口描述能力，不要求一条继承链。
+
+一个订单服务需要“取出用户”，并不需要知道数据来自 PostgreSQL、内存替身还是远程服务。接口让调用方依赖所需行为，而具体类型可以隐式满足这个约定：
+
+```go
+type UserReader interface {
+    FindUser(ctx context.Context, id int64) (User, error)
+}
+```
+
+这里的 `User` 是业务类型，方法签名是契约的一部分；成功、查无结果、取消、并发安全等行为还需文档和测试说明。**实现接口只证明具备相应方法，不证明满足所有业务语义。**
+
+`any` 是 `interface{}` 的别名，没有要求任何方法。它可以承接很多不同类型的值，但会把使用这些值所需的一部分检查推迟到运行时。后续泛型章节会说明：运行时的接口值，与编译时的类型约束，不是同一件事。
+
+</section>
+
+<section id="nil" className="lesson-section">
+
+<div className="section-kicker">02 / 拆开静态类型与动态内容</div>
+
+## nil 指针进入接口后，类型信息没有消失。
+
+把接口值理解为“动态类型 + 动态值”，有助于解释大多数常见问题。变量本身还有一个编译时确定的静态接口类型，比如 `error`；不能把这三者混在一起。
+
+```go
+type Fault struct{ Message string }
+
+func (f *Fault) Error() string {
+    if f == nil {
+        return "nil fault"
+    }
+    return f.Message
+}
+
+var p *Fault
+var err error = p
+fmt.Println(p == nil, err == nil) // true false
+fmt.Println(err.Error())         // nil fault
+```
+
+`p` 是值为 nil 的指针。赋给 `err` 后，`err` 保存的动态类型是 `*Fault`，动态值是这个 nil 指针；它不是一个没有动态内容的 nil 接口。`err != nil` 于是成立。
+
+方法调用也不一定当场 panic。这里 `Error` 使用指针接收者，方法体先判断 nil，所以可以处理该接收者。如果直接访问 `f.Message` 而没有 nil 分支，就会在解引用时 panic。**“nil 不能调方法”和“接口非 nil 就一定能安全调方法”都是过度概括。**
+
+### 从源头避免伪装成错误的 typed nil
+
+```go
+func load() error {
+    var fault *Fault
+    // 如果业务未产生错误，应返回真正的 nil 接口
+    if fault == nil {
+        return nil
+    }
+    return fault
+}
+```
+
+更常见的写法是出错分支返回具体错误，成功路径直接 `return nil`。别把 nil 的具体错误指针先装进 `error` 再返回，也别要求每个调用者都写反射来弥补生产者的契约问题。
+
+<Quiz id="go-interface-typednil" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 先预测两个比较</div>
+
+## 比较接口是否为空，与比较它保存的值，是不同问题。
+
+依次选择“没有赋值”“nil 指针”“nil 切片”和“整数零”。猜猜 `x == nil` 和 `x == x` 的结果是否总是一致。
+
+<InterfaceLab />
+
+装入接口的值为 nil，不会抹掉类型信息；类型信息存在，也不保证那个类型支持任意相等比较。带着这两条线索，再来看方法集与断言。
+
+</section>
+
+<section id="methods" className="lesson-section">
+
+<div className="section-kicker">04 / 不要从一次成功调用推导整个方法集</div>
+
+## T 和 \*T 实现接口的能力，可能不同。
+
+对于这里讨论的普通定义类型 `T`（不是指针或接口类型），`T` 的方法集包含接收者为 `T` 的方法；`*T` 的方法集包含接收者为 `T` 和 `*T` 的方法。
+
+```go
+type Counter int
+
+func (c *Counter) Increment() { *c++ }
+
+type Incrementer interface { Increment() }
+
+var c Counter
+c.Increment()                 // c 可寻址，调用可视作 (&c).Increment()
+var good Incrementer = &c     // *Counter 实现接口
+// var bad Incrementer = c    // Counter 的方法集不满足接口
+_ = good
+```
+
+`c.Increment()` 的便利来自可寻址变量的调用规则，不能倒推出 `Counter` 的方法集里包含这个方法。接口赋值不会偷偷替你取地址。map 索引结果不具备同样的可寻址条件，`m[key].Increment()` 在这里也不能成立。
+
+可以通过编译期断言让实现关系更醒目：
+
+```go
+var _ Incrementer = (*Counter)(nil)
+```
+
+这不是执行一个实例化测试，而是让编译器检查 `*Counter` 能否赋给接口。如果方法改名或签名改变，编译就会指出契约不再满足。
+
+<Quiz id="go-interface-methodset" />
+
+### 嵌入会提升方法，但不等于面向对象的虚方法继承
+
+对于普通类型 `T`，设 `T` 有值接收者方法，`*T` 还有指针接收者方法：
+
+| 外层结构体     | S 的提升方法          | \*S 的提升方法        |
+| -------------- | --------------------- | --------------------- |
+| `struct{ T }`  | T 接收者的方法        | T 与 \*T 接收者的方法 |
+| `struct{ *T }` | T 与 \*T 接收者的方法 | T 与 \*T 接收者的方法 |
+
+还要考虑同名字段和方法的冲突、遮蔽，以及嵌入指针为 nil 时实际调用是否安全。嵌入的主要作用是字段和方法提升；嵌入类型内部的方法调用，不会因为外层声明了同名方法就自动变成一套虚派发继承机制。
+
+</section>
+
+<section id="assertions" className="lesson-section">
+
+<div className="section-kicker">05 / 静态能写，不代表动态一定成功</div>
+
+## 断言不是强制转换，也不会修复 nil。
+
+`x.(T)` 在运行时检查接口值。断言为具体非接口类型时，动态类型必须与 `T` 相同；断言为另一个接口时，动态类型必须实现目标接口。失败的单值断言会 panic，comma-ok 形式返回目标类型的零值与 `false`。
+
+```go
+var err error = (*Fault)(nil)
+f, ok := err.(*Fault)
+fmt.Println(ok, f == nil) // true true
+```
+
+这里断言成功，因为动态类型正是 `*Fault`；成功不等于拿到了非 nil 指针。需要处理多个动态类型时，可以用 type switch，仍然要保留未知类型或 nil 的策略。
+
+### 可比较性，必须沿着动态类型继续检查
+
+```go
+var x any = []int(nil)
+fmt.Println(x == nil) // false，不会在这里比较切片内容
+// fmt.Println(x == x) // 运行时 panic：[]int 不可比较
+```
+
+两个接口具有不同动态类型时不相等；具有相同动态类型时，需要比较动态值。如果这个动态类型不可比较，例如 slice、map 或函数，就可能 panic。比较中只有一侧是 nil 接口时，也不能误套“切片不可比较所以一定 panic”的说法。
+
+同样的危险会传播到包含接口字段的结构体，以及使用 `any` 作为键类型的 map。比如 `map[any]string` 在静态类型上合法，但不能在运行时塞入一个切片键。泛型的 `comparable` 约束也有需要单独解释的边界，下一节继续拆解。
+
+<Quiz id="go-interface-compare" />
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 回到真实接口边界</div>
+
+## 小接口有助于替换，清晰契约才能避免误用。
+
+<Followups items={interfaceFollowups} />
+
+设计接口时，先从调用者真正需要的最小能力出发，再写清行为约束。一个返回 `error` 的方法，应保证成功时返回 nil；一个 reader 的调用者，则还要按其具体契约处理 `n > 0` 与错误同时出现的情形。签名只是理解的起点。
+
+<div className="answer-example">
+  <span className="answer-label">面试表达 · 三步判断</span>
+  <p>
+    {
+      '“我先看接口的动态类型和动态值：typed nil 有动态类型，所以不等于 nil 接口。然后看方法集，T 和 *T 不一定实现同一接口；可寻址变量自动取地址只是调用规则。最后看具体操作的运行时前提：断言成功不保证指针非 nil，接口能用 == 也不保证动态值可比较。实现层的 itab 和分配行为，我会注明编译器版本并用工具确认。”'
+    }
+  </p>
+</div>
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 保留判断顺序</div>
+
+## 先类型，再值；先方法集，再运行时前提。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>typed nil 仍有类型 · 调用便利不改方法集 · 比较追到动态值</strong>
+</div>
+
+核验日期：2026-09-19，规范基线 Go 1.27。接口布局仅将 Go 1.27.1 的 ABI 源码作为实现参考；本节逻辑模型不承诺具体字节表示。可执行示例与比较 panic 的断言位于 `examples/go/interfaces`，运行 `go test ./interfaces` 复验。
+
+<SourceList />
+<LessonFinish />
+
+</section>
