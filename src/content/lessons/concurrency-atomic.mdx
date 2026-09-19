@@ -1,0 +1,189 @@
+import { atomicFollowups } from '../concurrency/atomic';
+
+<section id="operation" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 热更新配置的最后一步</div>
+
+## atomic 保证操作的边界，业务要定义状态的边界。
+
+服务要热更新租户额度。你用 atomic.Pointer 切换配置指针，让读请求不必抢一把读锁。这个方案可以成立，但关键前提是：**发布的是构造完成的不可变版本，而不是仍有人随手修改的共享对象。**
+
+先从简单计数器看原子性的范围：
+
+```go
+var total atomic.Int64
+total.Store(total.Load() + 1) // 两个操作，中间可以被插入。
+total.Add(1)                // 一次原子读改写。
+```
+
+两个 G 可以都 Load 到 0，再各自 Store 1。每一步都合法、都原子，也没有普通字段的数据竞争，但一次增量丢失。第一章的“不能从单次正确输出证明并发正确”，在这里同样适用。
+
+<Quiz id="con-atomic-counter" />
+
+Go 的原子操作具有顺序一致语义，可以理解为所有原子操作像是在某个全局顺序中执行；当一个原子操作观察到另一个的效果时，还建立相应同步关系。Go 的这些 API 没有让你手选 relaxed、acquire、release 等内存序的参数。
+
+这依然不是多字段事务。假设 version 和 quota 都是原子整数，写者先更新 quota 再更新 version，读者分开读它们，仍可能读到不属于同一版本的组合。顺序一致允许不同 G 的操作交错，不会自动把相邻的两行粘在一起。
+
+</section>
+
+<section id="cas" className="lesson-section">
+
+<div className="section-kicker">02 / 比较成功，才提交这个候选值</div>
+
+## CAS 循环要重新读取，也要重新判断业务条件。
+
+上节的库存扣减，在单个原子整数上可以写成条件更新：
+
+```go
+func reserve(stock *atomic.Int64, n int64) bool {
+    if n <= 0 { return false }
+    for {
+        old := stock.Load()
+        if old < n { return false }
+        if stock.CompareAndSwap(old, old-n) { return true }
+    }
+}
+```
+
+检查后，别的 G 可能已经扣减。CAS 只有在当前值仍等于 old 时才把它换成 old-n；失败后必须重新读取并检查库存。不能一直拿旧预期值空转，也不能只重试写入而忽略最新业务条件。这里假定库存从非负值开始，所有更新都遵守约定。
+
+循环内应是可以重复执行的状态计算。发送扣款请求、写外部日志作为业务提交、发送消息等副作用，不能因为“等会儿有 CAS”就变成原子事务。即使 CAS 成功，进程也可能在后续外部动作前崩溃，需要另一个能覆盖这些步骤的协议。
+
+### CAS 不记录中间发生过什么
+
+入口从 A 变成 B 又回到 A，`CompareAndSwap(A, C)` 仍可能成功。若算法只需要“此刻是 A”，这未必是问题；若算法依赖“期间没有变化”，就会误判。这是逻辑 ABA 的核心，而不只是“内存地址被重用了”。
+
+Go 的 GC 不禁止你重新发布仍活着的旧对象。版本化状态只有在版本和数据作为同一比较单元、且不错误复用旧身份时才有帮助；把版本号单独放到另一个原子变量里，并不自动解决组合竞争。
+
+<Quiz id="con-atomic-aba" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 旧读者不应该读到半份新配置</div>
+
+## 先看对象身份，再看发布动作。
+
+<SnapshotLab />
+
+“只复制外层结构体”时，修改草稿就会改变 M1，甚至还没到原子发布那一步。切换成克隆内部 map 后，旧读者才保留原来的额度。最后一步故意违反不可变约定：先调整额度再修改已发布对象，观察当前入口对应的数据也跟着变化。
+
+这里顺序执行就能证明别名存在；真实服务若读写并发，还会有数据竞争风险。模型没有把不安全的并发 map 操作放进浏览器“碰运气运行”。
+
+<Quiz id="con-atomic-snapshot" />
+
+</section>
+
+<section id="snapshot" className="lesson-section">
+
+<div className="section-kicker">04 / 构造、发布、保留与回收</div>
+
+## 原子指针只切换入口，所有权协议维护整张对象图。
+
+以下是一个缩小后的配置仓库，使用 Go 1.19 起的类型化 atomic.Pointer，以及 Go 1.21 起的 maps.Clone。仅通过方法返回整数，避免把可修改的 map 暴露给调用者。
+
+```go
+type config struct {
+    quotas map[string]int
+}
+type Store struct {
+    writer sync.Mutex
+    current atomic.Pointer[config]
+}
+func NewStore(input map[string]int) *Store {
+    s := new(Store)
+    s.current.Store(&config{quotas: maps.Clone(input)})
+    return s
+}
+func (s *Store) Quota(tenant string) (int, bool) {
+    snapshot := s.current.Load()
+    value, ok := snapshot.quotas[tenant]
+    return value, ok
+}
+func (s *Store) SetQuota(tenant string, n int) {
+    s.writer.Lock()
+    defer s.writer.Unlock()
+    old := s.current.Load()
+    next := maps.Clone(old.quotas)
+    if next == nil { next = make(map[string]int) }
+    next[tenant] = n
+    s.current.Store(&config{quotas: next})
+}
+```
+
+此例必须使用 NewStore，不能拿 Store 零值直接调用方法；输入 map 在构造期间不得被并发修改。真实入口还要验证租户与额度的业务取值。Store 使用后不能复制，创建和更新后的 map 都不再修改。构造函数克隆输入，防止调用者之后通过原始 map 改动已发布配置。
+
+写锁不是给读者用的，而是防止多个写者基于同一旧版本修改不同键，再互相覆盖结果。读者只 Load 一次，在这份快照里完成一次逻辑读取；如果读取多个关联字段时重新 Load，就可能自己跨过发布点而混入两代版本。
+
+<Callout title="maps.Clone 也只是浅复制" kind="warning">
+  这里 map 的值是 int，所以克隆键值槽就足够隔离后续修改。 若值是切片、map
+  或指针，内部仍可能共享。要么共享部分一直不可变，要么对将要修改的可达对象继续复制。原子根指针不会替你递归冻结对象。
+</Callout>
+
+老读者继续使用旧对象，新读者在观察到新指针后获得新版本。旧对象何时回收由引用可达性和 GC 决定，不能假定 Store 返回就立刻释放旧版本。读者长时间保留大快照，会增加存活内存。
+
+更新非常频繁、对象很大或者需要复杂多对象修改时，复制成本可能比读锁更高。用不可变发布，是在读写路径之间重新分配成本，不是消灭成本。
+
+</section>
+
+<section id="value" className="lesson-section">
+
+<div className="section-kicker">05 / 类型边界比函数名更值得记</div>
+
+## 原子容器也有零值、类型和不可复制约束。
+
+| 工具                       | 零值               | 使用边界                                          |
+| -------------------------- | ------------------ | ------------------------------------------------- |
+| atomic.Int64 / Bool 等类型 | 相应的零值         | 首次使用后不得复制；不能与绕过原子 API 的访问混用 |
+| atomic.Pointer[T]          | Load 返回 nil 指针 | 指向对象不会因此自动变成线程安全或不可变          |
+| atomic.Value               | Load 返回 nil 接口 | Store(nil) 会 panic，后续存储的具体类型必须一致   |
+
+类型化 Int64、Uint64 自动满足它们所需的对齐。使用旧式 `atomic.AddInt64(&x, ...)` 等底层函数时，某些 32 位架构要求调用者负责 64 位对齐；不能只根据 amd64 上“能跑”就推断跨架构没有约束。优先类型化接口也更容易被 vet 发现误复制。
+
+```go
+var v atomic.Value
+v.Store(int64(1))
+v.Store(int(2)) // panic：具体类型不同。
+
+var p atomic.Value
+p.Store((*config)(nil)) // 可以：接口非 nil，具体类型仍是 *config。
+```
+
+typed nil 与 nil 接口的区别，仍然适用于 Value。Load 后使用断言前，要确认初始化状态和具体类型协议。Value 可以存 map，但不代表这个 map 支持比较；对不可比较的动态值调用 Value.CompareAndSwap 可能在比较阶段 panic，不能把 Store 的可用性外推到 CAS。
+
+<Quiz id="con-atomic-value" />
+
+多个原子变量落在同一缓存行上，即使逻辑上互不相关，也可能产生额外一致性流量。是否需要拆分、填充或改用分片统计，要由平台和负载测量决定。不要把固定的缓存行大小、某条 CPU 指令或者“无锁一定快”背成 Go 的通用保证。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 单步安全之后，整件事呢</div>
+
+## 原子性、不可变性和更新协议，要同时对齐。
+
+<Followups items={atomicFollowups} />
+
+面试表达：“Go 原子操作是顺序一致的，但多个操作不自动组成事务。单字段条件更新可以用 CAS 重试；复合配置可以构造不可变版本后原子发布。读者一次 Load，多写者协调，发布后不再修改，内部引用也要满足同样的不可变约定。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 一个入口，一代状态，一套约定</div>
+
+## 用对象的生命周期解释原子发布。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>单步不等于事务 · CAS 失败重算 · 发布后冻结 · 相等不代表没变</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1。`examples/go/atomics` 验证并发 CAS 扣减、写者协调与读者快照一致性、旧版本保持、浅复制别名、Value 类型与 nil、逻辑 ABA。浏览器模型只表达对象身份和发布顺序，不代替真实竞态检测。
+
+<SourceList />
+<LessonFinish />
+
+</section>

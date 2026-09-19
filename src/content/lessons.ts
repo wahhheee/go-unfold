@@ -16,6 +16,7 @@ import { memoryModelLesson } from './concurrency/memory-model';
 import { channelsLesson } from './concurrency/channels';
 import { selectLesson } from './concurrency/select';
 import { mutexLesson } from './concurrency/mutex';
+import { atomicLesson } from './concurrency/atomic';
 
 export type LessonDefinition = {
   id: string;
@@ -68,6 +69,7 @@ export const lessons: LessonDefinition[] = [
   channelsLesson,
   selectLesson,
   mutexLesson,
+  atomicLesson,
 ];
 
 export function findLesson(id: string) {

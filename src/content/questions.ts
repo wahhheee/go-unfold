@@ -12,6 +12,7 @@ import { memoryModelQuestions } from './concurrency/memory-model';
 import { channelsQuestions } from './concurrency/channels';
 import { selectQuestions } from './concurrency/select';
 import { mutexQuestions } from './concurrency/mutex';
+import { atomicQuestions } from './concurrency/atomic';
 
 export type Question = {
   id: string;
@@ -94,6 +95,7 @@ export const questions: Question[] = [
   ...channelsQuestions,
   ...selectQuestions,
   ...mutexQuestions,
+  ...atomicQuestions,
 ];
 
 export function getQuestion(id: string): Question {

@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 
+test('快照实验：浅复制污染、独立版本与发布后写入', async ({ page }) => {
+  await page.goto('/learn/concurrency-atomic#lab');
+  const lab = page.getByRole('region', { name: '原子快照与别名实验' });
+  await lab.getByRole('button', { name: '创建新版本' }).click();
+  await lab.getByRole('button', { name: '修改草稿', exact: true }).click();
+  await expect(lab.getByTestId('snapshot-reader')).toContainText('额度 40');
+  await expect(lab.getByTestId('snapshot-current')).toContainText('v1');
+  await lab.getByRole('combobox').selectOption('clone');
+  await lab.getByRole('button', { name: '创建新版本' }).click();
+  await lab.getByRole('button', { name: '修改草稿', exact: true }).click();
+  await lab.getByRole('button', { name: '原子发布', exact: true }).click();
+  await expect(lab.getByTestId('snapshot-reader')).toContainText('额度 10');
+  await expect(lab.getByTestId('snapshot-current')).toContainText('v2 → M2 · 额度 40');
+  await lab.getByRole('slider').fill('70');
+  await lab.getByRole('button', { name: '违规修改已发布对象' }).click();
+  await expect(lab.getByTestId('snapshot-current')).toContainText('额度 70');
+  await expect(lab.getByRole('status')).toContainText('发布后仍必须保持不可变');
+  await lab.getByRole('button', { name: '重置快照' }).click();
+  await expect(lab.getByRole('button', { name: '创建新版本' })).toBeEnabled();
+});
+
 test('锁时间线：完整临界区与递归读锁等待环', async ({ page }) => {
   await page.goto('/learn/concurrency-mutex#lab');
   const lab = page.getByRole('region', { name: '临界区与等待环实验' });
