@@ -1,5 +1,21 @@
 import { expect, test } from '@playwright/test';
 
+test('任务组时间线：遗留发送、等待清理与共享调用', async ({ page }) => {
+  await page.goto('/learn/concurrency-groups#lab');
+  const lab = page.getByRole('region', { name: '任务组与共享调用时间线' });
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('不会因创建它的函数返回而自动结束');
+  await lab.getByRole('combobox').selectOption('joined');
+  for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('尚未返回');
+  await lab.getByRole('combobox').selectOption('success');
+  for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('context.Canceled');
+  await lab.getByRole('combobox').selectOption('singleflight');
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('不是结果缓存');
+});
+
 test('Context 实验：继承、取消原因与独立预算', async ({ page }) => {
   await page.goto('/learn/concurrency-context#lab');
   const lab = page.getByRole('region', { name: 'Context 预算与取消实验' });

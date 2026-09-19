@@ -1,0 +1,198 @@
+import { groupsFollowups } from '../concurrency/groups';
+import { groupScenarios } from '../../lib/group-scenarios';
+
+<section id="group" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 查询用户、订单和额度，其中一个失败了</div>
+
+## 任务组的拥有者，负责把每个已启动任务收回来。
+
+一个接口并行访问三个依赖。订单查询先失败了，用户查询还在等网络，额度查询还在计算。直接返回订单错误，会把其他工作留在请求之外；只调用 cancel，又不等它们结束，也不算完整的收尾。
+
+`errgroup.WithContext` 将错误、取消和等待连接起来：任务返回的首个被组记录的非 nil 错误会触发派生 Context 取消；Wait 等待所有已启动任务返回，再交付那项错误。**取消可以早发生，Wait 仍要等最后一个任务结束。**
+
+本节固定使用 `golang.org/x/sync v0.23.0`，示例模块已经锁定依赖版本。它是扩展库，不是 Go 语言关键字，也不能假定与工具链版本号同步。
+
+```go
+func loadAll(ctx context.Context, ids []int) ([]Item, error) {
+    g, taskCtx := errgroup.WithContext(ctx)
+    g.SetLimit(8)
+    results := make([]Item, len(ids))
+    for i, id := range ids {
+        g.Go(func() error {
+            if err := taskCtx.Err(); err != nil { return err }
+            item, err := lookup(taskCtx, id)
+            if err != nil { return err }
+            results[i] = item
+            return nil
+        })
+    }
+    if err := g.Wait(); err != nil { return nil, err }
+    return results, nil
+}
+```
+
+这里 Item 与 lookup 是业务接口示意，lookup 必须有可取消的阻塞契约；每个任务写独立下标，保留输入顺序。循环变量采用 Go 1.22 起的逐次迭代语义。设置并发额度只限制组内活跃任务，ids 和 results 本身仍占用与输入数量相应的内存。
+
+### 成功完成，也会取消派生 Context
+
+WithContext 在第一次任务错误**或第一次 Wait 返回**时取消派生 Context，取先发生者。所以即便 Wait 返回 nil，taskCtx 也不应再传给下一段工作。下一段应从合适的父 Context 派生自己的预算，而不是误用已经结束的组。
+
+<Quiz id="con-groups-wait" />
+
+Wait 返回的是任务提交的错误，不会凭父 Context 已取消就自动合成一个错误。若所有任务忽略取消并返回 nil，Wait 可以返回 nil；请求是否仍应视为成功，要结合业务契约。组也不自动聚合全部错误，不保证按输入序号挑错误，更不会把任务 panic 自动变成普通 error。
+
+零值 errgroup.Group 可以使用，但没有派生 Context，也没有默认并发上限。一个 Group 应对应一组工作，不能把它当成可随意复用的长期任务管理器。
+
+</section>
+
+<section id="limit" className="lesson-section">
+
+<div className="section-kicker">02 / 限额影响的不只是任务内部</div>
+
+## Go 等额度，TryGo 报告能否立刻启动。
+
+SetLimit 设置活跃任务上限。满额时，调用 Go 的人会阻塞，直到有额度；TryGo 在当前无法启动时直接返回 false，不创建任务，也不替你排队。零额度会禁止新任务进入，负数表示不限制。
+
+```go
+g.SetLimit(1)
+g.Go(func() error {
+    g.Go(child) // 同一组额度已被本任务占满，这里可能永久等待。
+    return nil
+})
+```
+
+外层任务不能返回，就不能释放额度；内层 Go 拿不到额度，就不能让外层继续。这是依赖关系的问题，不是把额度随手从 1 改成 2 就能获得通用证明。可以整理任务层次，在合适时同步执行子工作，或使用彼此职责清晰的不同组。
+
+<Quiz id="con-groups-limit" />
+
+有任务活跃时不得修改 SetLimit。Go 的准入等待也不会因为你传给任务的 Context 被取消就自动跳出。上例 loadAll 中已经排到 Go 的调用仍可能在之后获得额度并启动，回调会再检查取消；若需要严格的停止接单和有界等待，要设计独立准入协议。下一节会把这一点展开为完整任务池。
+
+</section>
+
+<section id="pipeline" className="lesson-section">
+
+<div className="section-kicker">03 / 下游不再需要结果，上游就不能无限等人接</div>
+
+## 每条可能堵住的边，都需要退出路径。
+
+流水线通常由生成、转换和消费阶段组成。每个阶段负责关闭自己的输出；接收者根据关闭和取消退出。多发送者共享输出时，需要协调者在所有发送者退出后关闭，不能让任意一个发送者提前 close。
+
+下面是放入同一 errgroup 的转换阶段片段，假设它是 out 的唯一发送者，in 由上一个阶段负责关闭：
+
+```go
+g.Go(func() error {
+    defer close(out)
+    for {
+        var value int
+        var ok bool
+        select {
+        case <-taskCtx.Done():
+            return taskCtx.Err()
+        case value, ok = <-in:
+            if !ok { return nil }
+        }
+        select {
+        case out <- value * value:
+        case <-taskCtx.Done():
+            return taskCtx.Err()
+        }
+    }
+})
+```
+
+接收和发送两个阻塞点都有取消出口。这里的计算是受控的小整数示意；如果替换为耗时计算或 I/O，计算本身也要有预算和取消策略。不要把发数据到 out 的位置留下裸发送，再认为外层监听了 Context 就足够。
+
+消费者只要一个结果时，拿到结果后应通过拥有的 CancelFunc 通知上游，再 Wait 等整组退出。若本函数创建了这个取消范围，通常应在所有返回路径上安排 cancel 与等待，避免错误路径遗漏。下游不能直接关闭仍有上游发送的通道。
+
+<Quiz id="con-groups-pipeline" />
+
+增加容量为 1 的缓冲，可能让当前两项输入的测试通过，但更长输入仍会堵住。缓冲表达的是允许暂存多少，而不是“以后不需要结果时自动终止所有发送者”。函数返回也不会自动销毁其创建的 G。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">04 / 请求结束不是唯一的时间点</div>
+
+## 追踪每一个仍然活着的参与者。
+
+<ScenarioPlayer
+  title="任务组与共享调用时间线"
+  scenarios={groupScenarios}
+  boundary="固定参与者的生命周期模型，不模拟真实调度、网络和执行耗时。共享回源场景假设由服务持有独立预算，绝不暗示 singleflight 自带 Context 管理。真实行为在 examples/go/taskgroups 中使用 x/sync v0.23.0 验证。"
+/>
+
+</section>
+
+<section id="singleflight" className="lesson-section">
+
+<div className="section-kicker">05 / 热点配置同时未命中</div>
+
+## singleflight 合并重叠工作，不替代缓存和限流。
+
+一百个请求同时读取同一份未缓存配置，直接回源可能把数据库打满。同一个 singleflight.Group 内，key 标识等价的在途计算：重叠调用共享一次函数执行及其结果；执行结束后，后来的调用可以再次执行。
+
+<Quiz id="con-groups-cache" />
+
+缓存决定结果保存多久、怎样失效；singleflight 决定重叠回源如何合并；限流和并发额度决定不同 key 总共能对下游产生多少压力。三者经常组合，但不能互相冒充。常见缓存回源闭包还会再查一次缓存，以处理等待期间其他请求已填充缓存的情况。
+
+### 每个等待者有自己的请求，共享计算有自己的拥有者
+
+```go
+pending := flights.DoChan(key, func() (any, error) {
+    workCtx, cancel := context.WithTimeout(serviceCtx, 800*time.Millisecond)
+    defer cancel()
+    return readConfig(workCtx, key)
+})
+select {
+case <-requestCtx.Done():
+    return nil, requestCtx.Err()
+case result := <-pending:
+    return result.Val, result.Err
+}
+```
+
+这里 serviceCtx 由服务生命周期管理，不能直接换成任意第一个调用者的 requestCtx。代码只展示等待与共享工作的预算分离；还需要服务级跟踪与收尾、不同 key 的总并发限制、错误处理及返回值类型校验。requestCtx 的取消不会由 DoChan 自动转发成共享计算取消。
+
+DoChan 返回的 channel 接收一次结果，**不会关闭**，不能用 range 等它自然结束。在当前版本中每个等待者获得容量为 1 的结果通道，所以一个等待者离开不要求其他等待者一起放弃；这不代表回源可以没有自己的终止期限。
+
+### key 是数据隔离边界的一部分
+
+key 必须包含所有影响结果的参数、租户和权限维度，或只合并明确可共享的底层数据，再分别鉴权和过滤。不能把不同租户的私有结果用同一个 "config" 合并。key 的构造应无歧义，且不要将未受控的高基数输入变成无限量在途工作。
+
+结果也不自动深复制。如果返回 map、切片或指针，多个等待者可能拿到同一对象，仍应遵守不可变约定或按需复制。Shared 只说明结果被多位调用者共享，首个执行者也可能得到 true，不能用它可靠识别“领导者”。
+
+Forget 只让后续请求绕过当前在途记录，**不会取消旧函数**。它可能造成新旧同 key 调用同时运行，尤其要谨慎对待有副作用的工作。singleflight 也不是跨进程“恰好一次”执行保证，更不是分布式锁。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 共享的到底是计算，还是生命周期</div>
+
+## 工具负责一段契约，调用方负责把它们接完整。
+
+<Followups items={groupsFollowups} />
+
+面试表达：“errgroup 将任务错误与取消连接起来，但 Wait 仍等全部返回，成功 Wait 也会结束派生 Context。流水线每个阻塞点都要能退出，发送者负责输出关闭。singleflight 只合并同 key 的在途请求，缓存、取消所有权、总并发和数据隔离仍需独立设计。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 发出取消，也收回工作</div>
+
+## 先确认所有权，再组合工具。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>错误先取消 · Wait 等全部 · 阻塞有出口 · 合并仅在途</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1，`golang.org/x/sync v0.23.0`。`examples/go/taskgroups` 验证错误后等待清理、成功 Wait 取消、父取消与组错误的区别、TryGo 满额、流水线提前退出、共享结果、等待者取消和 Forget 后的重叠。依赖版本记录在 go.mod/go.sum，升级时需重新核验契约。
+
+<SourceList />
+<LessonFinish />
+
+</section>
