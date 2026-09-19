@@ -1,5 +1,23 @@
 import { expect, test } from '@playwright/test';
 
+test('select 实验：取消不优先，default 只处理无就绪状态', async ({ page }) => {
+  await page.goto('/learn/concurrency-select#lab');
+  const lab = page.getByRole('region', { name: 'select 就绪集合实验' });
+  await expect(lab.locator('.select-candidates')).toContainText('2 个分支');
+  await lab.getByRole('button', { name: '推演一次选择' }).click();
+  await expect(lab.getByRole('status')).toContainText('取消不自动优先');
+  await lab.getByRole('combobox').selectOption('nil');
+  await lab.getByRole('checkbox', { name: '取消已发生' }).uncheck();
+  await lab.getByRole('button', { name: '推演一次选择' }).click();
+  await expect(lab.getByRole('status')).toContainText('阻塞');
+  await lab.getByRole('checkbox', { name: '包含 default' }).check();
+  await lab.getByRole('button', { name: '推演一次选择' }).click();
+  await expect(lab.getByRole('status')).toContainText('本次选择：default');
+  await lab.getByRole('combobox').selectOption('closed-send');
+  await lab.getByRole('button', { name: '推演一次选择' }).click();
+  await expect(lab.getByRole('status')).toContainText('panic');
+});
+
 test('通道实验：缓冲、阻塞、关闭与 nil', async ({ page }) => {
   await page.goto('/learn/concurrency-channels#lab');
   const lab = page.getByRole('region', { name: 'Channel 状态实验' });

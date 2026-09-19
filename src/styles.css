@@ -1674,6 +1674,33 @@ strong {
   background: transparent;
   border-style: dashed;
 }
+.select-candidates {
+  padding: 18px;
+  background: var(--soft);
+  border-block: 1px solid var(--border);
+  min-height: 190px;
+  font-size: 12px;
+}
+.select-candidates > strong {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--heading);
+}
+.select-candidates > div {
+  display: grid;
+  grid-template-columns: 1fr 18px;
+  gap: 5px;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+  color: var(--secondary);
+}
+.select-candidates > div.selected {
+  color: var(--accent);
+}
+.select-candidates small {
+  grid-column: 1 / -1;
+  font-size: 11px;
+}
 .editor-highlight {
   pointer-events: none;
 }

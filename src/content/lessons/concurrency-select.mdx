@@ -1,0 +1,168 @@
+import { selectFollowups } from '../concurrency/select';
+
+<section id="ready" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 停止通知与待办任务同时到达</div>
+
+## select 选择就绪通信，不替你制定优先级。
+
+一个 worker 同时监听任务与请求取消。你把取消分支放在最前面，希望取消后不会再处理任何任务。这个希望不是 select 的契约。
+
+```go
+select {
+case <-ctx.Done():
+    return ctx.Err()
+case job := <-jobs:
+    return process(job)
+}
+```
+
+如果两个通信都可进行，Go 会从可进行的通信中作**均匀伪随机选择**，不会因为某个 case 在前面就优先选它。这个片段假设 jobs 没有关闭；一般消费循环还需接收 ok，避免把关闭后的零值当任务。
+
+没有任何通信能进行时，有 default 就执行 default，否则阻塞等待。nil channel 永远不会就绪，适合在当前 G 的选择集合里禁用一条路径。不要把这些规则扩展成“长期调度绝对公平”或“每两次恰好轮流选择”。
+
+<Quiz id="con-select-cancel" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 不只观察一次，还要列全候选</div>
+
+## 看到取消被选择，不能证明数据不会被选择。
+
+<SelectLab />
+
+将数据分支改为“向已关闭通道发送”，会发现它并不是被当作“不可发送”而排除：选中它会 panic。default 与取消分支都不是保护关闭发送的通用屏障，正确关闭协议仍然必需。
+
+</section>
+
+<section id="evaluation" className="lesson-section">
+
+<div className="section-kicker">03 / 选择之前，表达式已经运行</div>
+
+## 发送值会先计算，副作用不会因另一分支获选而撤销。
+
+```go
+select {
+case out <- buildPayload():
+    return nil
+case <-ctx.Done():
+    return ctx.Err()
+}
+```
+
+进入 select 时，接收操作的 channel 表达式，以及发送操作的 channel 与右侧表达式，都会按源码顺序求值一次。即使 ctx 已取消或 out 为 nil，`buildPayload()` 也会被调用。昂贵构造、写日志、扣费等副作用不能藏在这里，再期待取消会自动跳过它们。
+
+分支语句块只在选中后执行。接收赋值的左侧表达式，例如 `case values[index()] = <-ch:` 中的 index()，也要到对应分支选中后才求值。把“分支被选中”与“通信表达式被求值”分开，代码阅读题就不会靠猜。
+
+<Quiz id="con-select-evaluate" />
+
+改进方式取决于业务：构造过程自己接受 Context；进入昂贵步骤前检查取消；或先取得可执行任务再构造数据。但预检查与后续动作之间仍有竞争窗口，不能因此承诺取消后的所有副作用都不可能发生。
+
+</section>
+
+<section id="loops" className="lesson-section">
+
+<div className="section-kicker">04 / select 结束，不等于外围循环结束</div>
+
+## 接收者退出要明确，关闭后的分支要处理。
+
+```go
+for left != nil || right != nil {
+    select {
+    case value, ok := <-left:
+        if !ok { left = nil; continue }
+        consume(value)
+    case value, ok := <-right:
+        if !ok { right = nil; continue }
+        consume(value)
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+```
+
+这是两路输入的接收循环示意，left、right 是当前 G 持有的局部通道变量。将已经结束的分支设为 nil，避免它持续返回零值；外围条件保证两路都结束后不再进入只剩等待的 select。consume 自身如果会阻塞，也要有退出契约。
+
+这里没有取消其他发送者的实现；调用方仍要通过共享 Context 或另一个明确信号通知上游，再等待其退出。只停止接收而不处理上游，可能把阻塞从这里转移到别处。
+
+<Quiz id="con-select-closed" />
+
+还有一个语法陷阱：select 中没有标签的 break 结束的是这个 select，不是外面的 for。需要离开函数时用 return；需要退出特定循环时用带标签的 break。不要让“取消分支执行过”之后仍不断循环。
+
+</section>
+
+<section id="timers" className="lesson-section">
+
+<div className="section-kicker">05 / 历史兼容条件也会结束</div>
+
+## Go 1.27 的 timer channel 始终采用同步语义。
+
+Go 1.23 改进了基于 channel 的计时器：不再可达的未停止 timer、ticker 可以被回收；Stop 或 Reset 返回之后的接收不会取得旧配置遗留的到期值。1.23 至 1.26 的迁移期还需要看主模块版本与兼容开关。
+
+<Callout title="Go 1.27：旧开关已经永久移除" kind="fact">
+  `asynctimerchan` 已移除，time 创建的 channel 始终为无缓冲、同步语义，不再受这个 GODEBUG 设置影响。
+  go.mod 的 godebug 项或源码的 //go:debug 若要求已移除的旧值，go 命令会拒绝；最终默认值仍可接受。
+  阅读 1.23 的迁移文档时，不能把当年的兼容开关当作当前永久能力。
+</Callout>
+
+<Quiz id="con-select-timer" />
+
+```go
+timer := time.NewTimer(budget)
+defer timer.Stop()
+for {
+    select {
+    case <-timer.C:
+        return context.DeadlineExceeded
+    case <-ctx.Done():
+        return ctx.Err()
+    case value, ok := <-input:
+        if !ok { return nil }
+        if err := handle(ctx, value); err != nil { return err }
+    }
+}
+```
+
+这里 timer 在循环外创建一次，表达总体等待预算。handle 也必须能响应取消或拥有自己的截止时间；timer 就绪不会强行打断一个正在执行的 handle。因此整体任务的预算通常更适合通过 `context.WithTimeout` 传递给每个阻塞操作，Context 一节会继续展开。
+
+如果每轮都写 `time.After(budget)`，通常表达的是这轮等待的超时，持续有事件可能让总耗时远超 budget。现代 Go 不应再一概称这种写法“必然永久泄漏”，但反复创建计时器仍有分配和调度成本，预算语义也可能不对。
+
+### Stop 和 Reset 不是等待回调完成
+
+对当前的 chan-based timer，不要机械写 `if !timer.Stop() { <-timer.C }`：若值已被接收或计时器已停止，盲目排空可以永久阻塞。Stop/Reset 的行为也不能直接套到 `time.AfterFunc`：回调一旦开始，Stop 不等它结束，Reset 还可能让后续回调与前次并发。
+
+`Ticker.Stop()` 不关闭 C，所以 `for range ticker.C` 不会因此自然退出。计时器的资源控制、回调完成和消费循环结束，仍是不同问题。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 取消的时刻，必须落到具体动作</div>
+
+## 不把“观察到取消”说成“撤销了一切”。
+
+<Followups items={selectFollowups} />
+
+面试表达：“select 先计算通信表达式，再从就绪集合选择，没有源码顺序优先级。关闭接收一直就绪，nil 则禁用通信；取消需要明确准入和退出协议。计时器要注明版本，Go 1.27 已移除旧开关，停止计时不等于等待回调或关闭消费循环。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 先求值，再选路，最后执行</div>
+
+## 从语句的执行顺序，推到任务的生命周期。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>就绪不排优先 · 右值先计算 · 关闭不禁用 · 超时不强杀</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1。计时器变化分别标明 1.23 与 1.27；`examples/go/selection` 验证求值顺序、关闭分支、虚拟时间下的 Reset、旧开关失效及 Ticker.Stop。不通过有限次抽样声称穷尽真实调度。
+
+<SourceList />
+<LessonFinish />
+
+</section>
