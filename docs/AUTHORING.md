@@ -12,7 +12,7 @@
 
 ## 编辑现有正文
 
-正文位于 `src/content/lessons/`，使用 Markdown 与 React 组件混排。第一章的元信息、题目和追问按节放在 `src/content/go/*.ts`；序章元信息位于 `curriculum.ts`。顶层小节有稳定的 `id`，与该节元信息中的 `sections` 对应；修改标题时尽量保留 ID，避免破坏收藏和搜索锚点。
+正文位于 `src/content/lessons/`，使用 Markdown 与 React 组件混排。第一章的元信息、题目和追问按节放在 `src/content/go/*.ts`，第二章放在 `src/content/concurrency/*.ts`；序章元信息位于 `curriculum.ts`。顶层小节有稳定的 `id`，与该节元信息中的 `sections` 对应；修改标题时尽量保留 ID，避免破坏收藏和搜索锚点。
 
 ```mdx
 <section id="stable-section-id" className="lesson-section">
@@ -57,7 +57,7 @@
 
 ## 新增实验
 
-先把模型放在 `src/lib/`，用可测试的纯函数定义输入、事件和输出；再在 `src/components/` 添加界面，并注册到 `Lesson.tsx` 的 MDX 组件映射。
+先把模型放在 `src/lib/`，用可测试的纯函数定义输入、事件和输出；再在 `src/components/` 添加界面，在 `Lesson.tsx` 中按现有 `lazy` 方式导入并注册到 MDX 组件映射。固定教学时间线可复用 `ScenarioPlayer`，推导型模型仍独立维护，不将预设帧冒充真实运行。
 
 - 使用受限的结构化输入，不使用 `eval` 或 `new Function`。
 - 参数变化应清除旧运行结果，避免结果与当前参数错配。
@@ -67,6 +67,8 @@
 - 需要执行真实 Go 时，必须另外设计服务端沙箱、限时限额与隔离；本项目的 JSON 模拟器不能承担这个职责。
 
 固定的 Go 教学案例放在 `examples/go/`，通过本地 `go test` 验证；不需要为固定测试开放 Web 执行接口。输出、反例、编译失败条件与性能结论应有相应证据，基准必须记录环境和结果的使用方式。
+
+并发案例用通道屏障、明确完成信号或适用的 synctest 控制关键路径，不依赖 Sleep 猜测任务顺序。验证业务结果和生命周期，而非只检查 race 没有报告。有意数据竞争、死锁或泄漏需要带超时的隔离子进程；断言诊断证据后回收样本。第三方并发库固定模块版本，升级后同时复核正文、模型边界与真实测试。
 
 ## 发布新章节
 

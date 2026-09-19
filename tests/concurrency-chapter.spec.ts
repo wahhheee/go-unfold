@@ -1,4 +1,48 @@
 import { expect, test } from '@playwright/test';
+import { lessons } from '../src/content/lessons';
+
+test('第二章整章发布、搜索、首尾翻页与笔记归属', async ({ page, isMobile }) => {
+  const chapter = lessons.filter((lesson) => lesson.moduleId === 'concurrency');
+  await page.goto('/roadmap#concurrency');
+  const module = page.locator('#concurrency');
+  await expect(module).toContainText('本章已发布');
+  await expect(module.getByRole('link')).toHaveCount(chapter.length);
+  for (const lesson of chapter)
+    await expect(module.locator(`a[href="${lesson.path}"]`)).toHaveCount(1);
+  await expect(page.locator('#network')).toContainText('规划中');
+  await expect(page.locator('#network').getByRole('link')).toHaveCount(0);
+  await page.getByRole('button', { name: '搜索知识点', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索知识点' });
+  await dialog.getByRole('textbox').fill('并发编程');
+  await expect(dialog.locator('.search-result').first()).toBeVisible();
+  await expect(dialog.locator('.search-results')).not.toContainText('规划中');
+  await dialog.getByRole('textbox').fill('goroutineleak');
+  await dialog.getByRole('button', { name: /从退出责任到等待环/ }).click();
+  await expect(page).toHaveURL(/concurrency-diagnostics#lifetime$/);
+  await expect(page.locator('#lifetime')).toBeInViewport();
+  const pagination = page.getByRole('navigation', { name: '章节翻页' });
+  await expect(pagination.getByRole('link')).toHaveCount(1);
+  await expect(pagination.getByRole('link')).toHaveAttribute('href', '/learn/concurrency-rate');
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await expect(page.locator('.curriculum-nav .current-lesson')).toHaveCount(chapter.length);
+  await page.locator('.curriculum-nav .current-lesson[href="/learn/concurrency-memory"]').click();
+  await expect(pagination.getByRole('link', { name: /上一节/ })).toHaveAttribute(
+    'href',
+    '/learn/go-testing',
+  );
+  await pagination.getByRole('link', { name: /下一节/ }).click();
+  await expect(page).toHaveURL(/concurrency-channels$/);
+  await page.getByRole('link', { name: '记下我的理解', exact: true }).click();
+  await expect(page).toHaveURL(/notes\?lesson=concurrency-channels$/);
+  const notes = page.locator('.notes-editor');
+  await notes.fill('关闭是发送方协议，退出还要由拥有者确认。');
+  await page.getByRole('combobox', { name: '选择笔记章节' }).selectOption('go-testing');
+  await expect(notes).toHaveValue('');
+  await page.getByRole('combobox', { name: '选择笔记章节' }).selectOption('concurrency-channels');
+  await expect(notes).toHaveValue('关闭是发送方协议，退出还要由拥有者确认。');
+  await page.reload();
+  await expect(notes).toHaveValue('关闭是发送方协议，退出还要由拥有者确认。');
+});
 
 test('交错枚举：丢失更新、顺序执行和原子加一', async ({ page }) => {
   await page.goto('/learn/concurrency-diagnostics#lab');

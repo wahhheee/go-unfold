@@ -35,6 +35,7 @@ export const modules: Module[] = [
   },
   {
     id: 'concurrency',
+    contentComplete: true,
     number: '02',
     title: '并发编程',
     description: '写得出并发，更能说明正确性的边界。',
