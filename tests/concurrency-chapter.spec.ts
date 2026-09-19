@@ -1,5 +1,34 @@
 import { expect, test } from '@playwright/test';
 
+test('令牌桶：初始突发、分数补充、立即拒绝与重置', async ({ page }) => {
+  await page.goto('/learn/concurrency-rate#lab');
+  const lab = page.getByRole('region', { name: '令牌桶与突发实验' });
+  const tokens = lab.getByTestId('bucket-tokens');
+  await expect(tokens).toHaveText('3.00');
+  await lab.getByRole('slider', { name: '单次令牌申请量' }).fill('3');
+  await lab.getByRole('button', { name: '申请令牌', exact: true }).click();
+  await expect(tokens).toHaveText('0.00');
+  await lab.getByRole('slider', { name: '单次令牌申请量' }).fill('1');
+  await lab.getByRole('button', { name: '推进 250ms' }).click();
+  await lab.getByRole('button', { name: '申请令牌', exact: true }).click();
+  await expect(tokens).toHaveText('0.50');
+  await expect(lab.getByTestId('bucket-rejected')).toHaveText('1');
+  await lab.getByRole('button', { name: '推进 250ms' }).click();
+  await lab.getByRole('button', { name: '申请令牌', exact: true }).click();
+  await expect(tokens).toHaveText('0.00');
+  await expect(lab.getByTestId('bucket-allowed')).toHaveText('2');
+  await lab.getByRole('button', { name: '重置令牌桶' }).click();
+  await lab.getByRole('slider', { name: '单次令牌申请量' }).fill('4');
+  await lab.getByRole('button', { name: '申请令牌', exact: true }).click();
+  await expect(tokens).toHaveText('3.00');
+  await expect(lab.getByRole('status')).toContainText('超过 burst');
+  await lab.getByRole('button', { name: '自动推进时钟' }).click();
+  await expect(lab.locator('.live-label')).not.toHaveText('0.00s');
+  await lab.getByRole('button', { name: '暂停时钟' }).click();
+  await lab.getByRole('slider', { name: '突发额度' }).fill('5');
+  await expect(tokens).toHaveText('5.00');
+});
+
 test('任务池：外部积压、拒绝、排空与中止', async ({ page }) => {
   await page.goto('/learn/concurrency-pool#lab');
   const lab = page.getByRole('region', { name: '有界任务池与背压实验' });

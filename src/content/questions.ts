@@ -17,6 +17,7 @@ import { coordinationQuestions } from './concurrency/coordination';
 import { contextQuestions } from './concurrency/context';
 import { groupsQuestions } from './concurrency/groups';
 import { poolQuestions } from './concurrency/pool';
+import { rateQuestions } from './concurrency/rate';
 
 export type Question = {
   id: string;
@@ -104,6 +105,7 @@ export const questions: Question[] = [
   ...contextQuestions,
   ...groupsQuestions,
   ...poolQuestions,
+  ...rateQuestions,
 ];
 
 export function getQuestion(id: string): Question {

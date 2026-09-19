@@ -1,0 +1,187 @@
+import { rateFollowups } from '../concurrency/rate';
+
+<section id="dimensions" className="lesson-section">
+
+<div className="section-kicker">01 / 三种边界，不能互相代替</div>
+
+## 入口没有变快，处理中为什么越来越挤？
+
+一个接口每秒放入约 100 次请求。下游正常时每次只占用资源 20ms；发生慢查询后，同样的任务可能占用 2s。入口节奏相近，旧任务却迟迟不退出，新任务仍不断加入，活跃请求就会堆积。
+
+先分清正在限制的量。**速率**问一段时间内开始了多少事件；**并发**问现在有多少任务同时持有资源；**队列**问还有多少任务等着开始。超时则规定一个任务最多愿意等多久、做多久，它本身不限制同时等待的人数。
+
+| 工具                 | 管理的量                 | 不会自动解决                     |
+| -------------------- | ------------------------ | -------------------------------- |
+| 令牌桶               | 准入事件的节奏与突发     | 已进入任务的执行时长与活跃数     |
+| 加权信号量           | 同时持有的总权重         | 每秒开始次数与外部等待者数量     |
+| 有界队列或固定工作者 | 某段链路中的积压与执行数 | 任务内部派生的无界工作、全局公平 |
+| Context 截止时间     | 这条任务路径的剩余预算   | 强行终止不合作的任务、撤销副作用 |
+
+<Quiz id="con-rate-concurrency" />
+
+这里说的是约束目标，不是要求每个服务都堆满工具。先观察瓶颈：昂贵数据库操作可能最需要并发额度；公开接口可能还要按租户限速；短暂峰值可以有少量队列，但不能无期限等待。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 水龙头速度，不是杯子容量</div>
+
+## 令牌桶把持续补充和短时突发分开。
+
+有限正速率 r 表示每秒补充多少令牌，burst 表示桶最多容纳多少令牌。x/time/rate 的 NewLimiter 创建的是满桶：r=2、burst=3 时，开场就能一次取走 3 枚；随后每过 250ms 增加 0.5 枚，桶满后不会继续攒。
+
+<RateLab />
+
+将单次申请调为 3，立即申请，再用 1 枚申请测试 250ms 和 500ms 的差异。把申请量调为 4，则即使桶补满也会失败。这个实验只实现 AllowN 的立即允许或拒绝，不把拒绝藏进一个看不见的等待队列。
+
+<Quiz id="con-rate-burst" />
+
+“每秒 r 次”不能被背成任意长度为一秒的窗口都至多 r 次。允许突发的桶在短窗口可以使用已有额度，再使用这段时间补充的额度。理想的固定参数模型在长度 T 的时间区间内受初始可用额度加 rT 约束，最多从一个满桶起步；这也不等于“任意时刻至多 r 个任务在运行”。
+
+</section>
+
+<section id="rate" className="lesson-section">
+
+<div className="section-kicker">03 / 不够额度时，接口怎么回答</div>
+
+## Allow 拒绝，Reserve 预约，Wait 等待。
+
+```go
+limiter := rate.NewLimiter(rate.Limit(100), 20)
+
+// 限流器应按所需作用域复用，不要为每次请求重建满桶。
+if !limiter.Allow() {
+    return ErrBusy
+}
+return handle(ctx)
+```
+
+这是运行期间的立即准入片段，ErrBusy 和 handle 由业务定义。Allow 返回 false 时没有接纳任务，也不会替你自动排队；调用方需要收到明确结果。
+
+| 方法               | 没有现成令牌时         | 调用方责任                               |
+| ------------------ | ---------------------- | ---------------------------------------- |
+| Allow / AllowN     | 立即返回 false         | 拒绝、跳过或降级，不能假装已接纳         |
+| Reserve / ReserveN | 预约未来时刻，给出延迟 | 检查 OK，等待到时再行动；放弃时取消预约  |
+| Wait / WaitN       | 等待许可，响应 Context | 处理返回错误，并约束有多少调用方同时等待 |
+
+在有限速率下，单次 n 超过 burst，AllowN 返回 false、ReserveN 的 OK 为 false、WaitN 返回错误。**rate.Inf 是特别情况，会忽略 burst**；零值 Limiter 拒绝事件。应用层还应校验有限正速率、合理 burst 与正申请量，不要把任意无效配置当成库会替你纠正。
+
+Reserve 会占用未来额度，后续申请看到的是已经做过预约的状态。放弃预约应调用 Cancel，但恢复会考虑后续预约和当前时间，不能许诺全额退还。它也不会自动为所有后来的预约重排时间并通知等待者。
+
+### Wait 的错误不只有“Context 已取消”
+
+```go
+ctx, cancel := context.WithTimeout(parent, 300*time.Millisecond)
+defer cancel()
+if err := limiter.Wait(ctx); err != nil {
+    return err
+}
+return handle(ctx)
+```
+
+这里 parent、limiter 和 handle 已由外围提供。若下枚令牌要等 500ms，而截止时间只剩 100ms，Wait 可以立即返回预计等待超过截止时间的错误，**此时 ctx.Err() 仍可能为 nil**。必须检查 Wait 的返回值，不能只盯着 Context，也不能将所有返回错误都断言成 context.DeadlineExceeded。
+
+<Quiz id="con-rate-deadline" />
+
+Wait 并不会限制等待者总数。先对每个新请求 go，再在内部 Wait，仍然可能产生大量等待的 G。运行过程中修改 Limit 或 Burst，还要考虑旧预约：核验版本明确提醒，尚未执行的旧预约可能使新参数暂时被突破或未充分利用。实验改参数时重建满桶，不能拿它推断生产动态配置的语义。
+
+</section>
+
+<section id="weighted" className="lesson-section">
+
+<div className="section-kicker">04 / 名额要在派生工作之前取得</div>
+
+## 信号量统计持有的权重，结束时释放。
+
+假设总额度 6，普通查询权重 1、大型导出权重 3。加权信号量约束同时持有的权重和不超过 6；任务变慢时名额一直被占用，新申请会等待或被拒绝。这与令牌桶按时间补充完全不同。
+
+```go
+// weights、work、capacity 和父 Context 已由外围定义。
+sem := semaphore.NewWeighted(capacity)
+g, taskCtx := errgroup.WithContext(ctx)
+var admissionErr error
+for index, weight := range weights {
+    if err := sem.Acquire(taskCtx, weight); err != nil {
+        admissionErr = err
+        break
+    }
+    g.Go(func() error {
+        defer sem.Release(weight)
+        return work(taskCtx, index)
+    })
+}
+if err := g.Wait(); err != nil { return err }
+if admissionErr != nil { return admissionErr }
+return ctx.Err()
+```
+
+完整有限批处理版本在 `examples/go/admission.RunWeighted`，先校验 capacity 为正、每项权重在 1 到 capacity 之间、work 非 nil。示例按 Go 1.27 的逐轮循环变量语义编写。只由单个生产路径在 Acquire 处等待，拿到额度才启动工作；已经启动的任务无论正常还是返回 error 都释放，并由 Wait 收尾。
+
+<Quiz id="con-rate-release" />
+
+若把 Acquire 放到新 G 里面，活跃业务权重虽然受限，排队的 G 数却可能没有上限。信号量不是 goroutine 数量的自动总闸门。同样，成功取得额度后取消可能并发发生，不能将“Acquire 成功”当作“业务直到结束都不会取消”。
+
+### 大于总容量、嵌套申请与队头阻塞
+
+核验版本中，Acquire(ctx, n) 若 n 大于总容量，会等待 ctx.Done，然后返回错误；它不会自动快速拒绝。若使用永不取消的 Background，就可能永久等待。生产接口应提前验证可行的任务权重。
+
+不要拿着全部或部分额度，等待一个也要申请同一额度的子任务完成：父任务不释放，子任务拿不到，仍然能形成等待环。额度也必须精确记账，重复 Release 不是幂等行为，多释放可能破坏额度或 panic。
+
+当前实现不会让后面的小申请随意越过尚未满足的大申请。这减少大申请饥饿，却会产生队头阻塞。它是版本实现上的取舍，不是所有信号量通用的调度定理，也不代表租户级公平。
+
+</section>
+
+<section id="budget" className="lesson-section">
+
+<div className="section-kicker">05 / 不能每过一道门就重发一张时间支票</div>
+
+## 总体截止时间覆盖准入、排队与执行。
+
+调用方愿意总共等 800ms，前面拿令牌、排队、等连接已经用了 600ms，业务就只剩约 200ms。若每到一层都创建独立 Background 加 800ms，累计耗时会远超上游预算。应沿请求链传递 Context，派生更短的子预算时仍继承父截止时间。
+
+| 阶段           | 应观察的成本                             | 必须明确的结果                           |
+| -------------- | ---------------------------------------- | ---------------------------------------- |
+| 等待准入       | 等待者数、等待时长、预计能否赶上截止时间 | 拒绝或准入失败，未进入的工作不要冒充成功 |
+| 已准入但未执行 | 队列深度、任务年龄、名额占用             | 过期任务怎样取消、通知和释放             |
+| 执行业务       | 活跃权重、下游耗时、实际副作用           | 成功、可确认失败或结果未知               |
+| 退出清理       | 释放资源、子任务退出、关闭预算           | 何时所有持有责任已经结束                 |
+
+先限速再等并发名额，消耗令牌的时刻可能早于实际开始；后面同时取得名额时，实际开始时刻仍可能聚集。先取得并发名额再等令牌，则会在等待限速时占名额。选择顺序前，要明确限的究竟是入口准入还是对下游真正发出的操作，以及每种额度覆盖哪些阶段。
+
+<Callout kind="warning" title="取消是停止意图，不是退款和回滚协议">
+  Context
+  到期不保证外部操作没发生，也不会强行终止不合作的处理函数。配额释放、任务退出和副作用确认各有责任；重试仍然要有总体预算与幂等设计。
+</Callout>
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 从一道门，追到整条服务链</div>
+
+## 限流器的作用域，也是答案的一部分。
+
+<Followups items={rateFollowups} />
+
+面试表达：“令牌桶用速率 r 补充，burst 允许有限突发；它管准入事件，不知道任务何时完成。并发用额度或工作者控制，先取得额度再派生工作，成功取得才释放。等待者也要有界，所有等待与业务共用总体截止时间。单机限流不等于全局限流，组合多个门槛前先定义事件与资源责任。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 三个量，三种责任</div>
+
+## 先问限什么，再问放在哪里。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>速率管节奏 · 额度管占用 · 预算贯全程 · 等待也有界</strong>
+</div>
+
+核验日期：2026-09-19。Go 1.27.1，x/time v0.16.0，x/sync v0.23.0，固定在示例模块中。`examples/go/admission` 验证满桶时间向量、预约取消边界、Wait 提前拒绝和取消、活跃权重、队头阻塞与超额申请等待；synctest 使用虚拟时间，不靠真实睡眠碰运气。
+
+<SourceList />
+<LessonFinish />
+
+</section>
