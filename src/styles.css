@@ -1589,6 +1589,45 @@ strong {
   border-radius: 4px;
   overflow: hidden;
 }
+.hb-diagram {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding: 18px;
+  background: var(--soft);
+  border-block: 1px solid var(--border);
+}
+.hb-lane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: var(--accent);
+}
+.hb-lane strong {
+  font-size: 12px;
+  color: var(--heading);
+}
+.hb-lane code {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  overflow-wrap: anywhere;
+  padding: 9px;
+  font-size: 11px;
+}
+.hb-connection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  font-size: 12px;
+  color: var(--blue);
+}
 .editor-highlight {
   pointer-events: none;
 }

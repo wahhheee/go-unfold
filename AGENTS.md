@@ -9,3 +9,4 @@
 - 不给实验接入任意代码执行，除非任务明确要求并实现独立的执行隔离。
 - 修改后按影响范围运行检查；发布前执行 `npm run format:check`、`npm run check` 与 `npm run test:e2e`。
 - 第一章逐节交付范围见 `docs/GO_CHAPTER.md`，每节还需运行 `npm run test:go`，检查好质量后单独提交。
+- 第二章逐节交付范围见 `docs/CONCURRENCY_CHAPTER.md`；每节还需通过真实 Go 示例与竞态检查，完成桌面和手机验证后单独提交。

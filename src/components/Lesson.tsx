@@ -37,6 +37,7 @@ import { ScenarioPlayer } from './ScenarioPlayer';
 import { GCBudgetLab } from './GCBudgetLab';
 import { ProfileLab } from './ProfileLab';
 import { RoundTripLab } from './RoundTripLab';
+import { HappensBeforeLab } from './HappensBeforeLab';
 import type { ComponentPropsWithoutRef } from 'react';
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
@@ -141,6 +142,7 @@ const mdxComponents = {
   GCBudgetLab,
   ProfileLab,
   RoundTripLab,
+  HappensBeforeLab,
   LockLab,
   Followups,
   SourceList,

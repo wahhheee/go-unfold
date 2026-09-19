@@ -1,0 +1,130 @@
+import { memoryModelFollowups } from '../concurrency/memory-model';
+
+<section id="race" className="lesson-section first-section">
+
+<div className="section-kicker">01 / “我等它跑完了”需要证据</div>
+
+## 时间上的先后，不是跨 goroutine 的同步契约。
+
+你启动一个后台任务加载配置，主任务等一秒，再读配置。开发机上一千次都正确，上线之后偶尔读到旧值。问题不是一秒太短，而是程序没有表达“配置已准备好”这件事。
+
+```go
+var value int
+go func() { value = 42 }()
+time.Sleep(time.Second)
+fmt.Println(value) // 错误示意：没有建立所需同步关系
+```
+
+当同一内存位置的访问中至少一次是写，且访问之间没有所需顺序、又不是都使用适当原子操作，就需要检查数据竞争。这里的“并发”不是一定在两个 CPU 上同一纳秒执行，而是访问缺少内存模型要求的顺序关系。
+
+**Sleep、日志中看起来先完成、调度器恰好先运行某个 G，都不能替代同步。** 程序需要可检查的通信或锁协议。为了不把有意竞态混入正常示例，本节 Go 测试只运行正确发布和无竞态的逻辑反例；最后一节会在隔离子进程验证 race detector 的报告。
+
+<Quiz id="con-memory-sleep" />
+
+</section>
+
+<section id="order" className="lesson-section">
+
+<div className="section-kicker">02 / 两种边，组成一条路径</div>
+
+## happens-before 是可传递的偏序，不是墙上时钟。
+
+先只记两种边：一个 goroutine 内，语言规定的求值与语句执行顺序叫 **sequenced-before**；两个 goroutine 之间，特定同步操作建立 **synchronized-before**。把它们连接并取传递关系，得到 happens-before。不是任意两个事件都能排出先后，所以它是偏序。
+
+```go
+done := make(chan struct{})
+value := 0
+go func() {
+    value = 42    // W
+    close(done)   // P
+}()
+<-done            // O：观察到关闭
+fmt.Println(value) // R：42
+```
+
+证明只需四步：W 在 P 前；关闭 channel 同步先于因为关闭而返回零值的接收 O；O 在 R 前；于是 W happens-before R。前提是 value 没有其他未受保护的写入。这里 `<-done` 即使不显式接收 ok，也是在观察无缓冲通知 channel 的关闭。
+
+这个同步关系保护的是发布之前的普通写入，不只是 channel 的内部状态。`close(done)` 不会把所有未来写入也变成安全的：若发布者在 close 后继续改 value，必须重新分析那次访问。
+
+<Quiz id="con-memory-close" />
+
+### 启动的方向与结束的方向分开看
+
+`go` 语句同步先于新 goroutine 开始执行，所以启动之前准备好的、之后不再修改的数据可以传给它。但是 goroutine 退出本身不自动同步到其他 goroutine。要观察任务结果，应使用 channel、WaitGroup 等适当完成协议；不要把“能启动”误解成“能隐式等待”。
+
+<Quiz id="con-memory-start" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 把读取挪到通知前，证明会在哪里断开</div>
+
+## 连接上了同步边，还要检查读取的位置。
+
+<HappensBeforeLab />
+
+“先读取、后接收”这个模式特别容易误判：程序确实使用了 channel，但方向错误。同步保证不是可以追溯修复先前访问的补丁。原子模式则必须确认 Load 真的观察到了对应发布，而不是仅仅调用过一次 Load 就继续使用数据。
+
+</section>
+
+<section id="invariant" className="lesson-section">
+
+<div className="section-kicker">04 / 去掉竞态之后，还要检查协议</div>
+
+## DRF-SC 允许按交错推理，不承诺业务一定正确。
+
+Go 对无数据竞争的程序提供顺序一致性保证，常称 DRF-SC：可以把结果解释为保持各 G 内顺序的某种交错。这样便于推理，但合法交错仍可能违反你的业务意图。
+
+```go
+// counter 是 atomic.Int64；下面两次调用各自原子，组合不是原子递增。
+old := counter.Load()
+counter.Store(old + 1)
+
+// 若契约是“不可丢失地增加一次”，使用一个原子读改写。
+counter.Add(1)
+```
+
+想象 G1 和 G2 都先 Load 到 0，再各自 Store(1)。两个调用都“完成了”，最终却只有 1。我们的真实 Go 测试用屏障强制这个交错，得到确定性的逻辑反例，并且通过 `-race`：**检测不到数据竞争，不表示检测到了所有错误。**
+
+若条件牵涉多个字段，例如“余额足够才扣款并增加已售数量”，不能只给每个字段换上 atomic 就结束。后续锁与原子一节会继续讨论覆盖整个不变量的临界区、CAS 循环与不可变快照。
+
+<Quiz id="con-memory-atomic" />
+
+### 并发、并行与顺序，是三个问题
+
+GOMAXPROCS 限制同时执行 Go 代码的资源数量，不给共享变量自动加锁。单 P 仍可交错执行多个 G，也没有因此新增 happens-before 边。反过来，多个 P 上的程序通过明确同步一样可以正确。
+
+不要用“刷新 CPU 缓存”来解释所有同步。先给出语言契约，再按需讨论实现：锁、channel、原子操作建立不同的顺序与生命周期关系；这些关系才是可移植推理的依据。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">05 / 每一次“安全”，都指出被保护的访问</div>
+
+## 从一个变量，追问到整个业务操作。
+
+<Followups items={memoryModelFollowups} />
+
+面试表达：“我先找同一位置上的冲突访问，再画单个 G 内的顺序和跨 G 的同步边。Sleep 和退出不提供我需要的完成通知。无竞态之后可以按合法交错推理，但检查再更新这种业务操作仍可能失效，要把整个不变量放进适当协议。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">06 / 并发证明，从一条有方向的线开始</div>
+
+## 找访问，连同步，查传递，再查不变量。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>时间不是同步 · 发布要被观察 · 退出不是等待 · 无竞态不等于无错误</strong>
+</div>
+
+核验日期：2026-09-19。以 Go 内存模型与 Go 1.27.1 为依据；`examples/go/happensbefore` 验证关闭发布、启动前初始化、强制交错的原子丢失更新与 Add。浏览器关系图不预测有竞态程序的具体输出。
+
+<SourceList />
+<LessonFinish />
+
+</section>

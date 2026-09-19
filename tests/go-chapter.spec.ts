@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { lessons } from '../src/content/lessons';
 import { questions } from '../src/content/questions';
 
-for (const lesson of lessons.filter((item) => item.moduleId === 'go')) {
+for (const lesson of lessons.filter((item) => item.moduleId !== 'preface')) {
   test(`${lesson.label}：正文、练习、追问、主题与记录`, async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -260,10 +260,11 @@ test('整章入口、搜索、翻页与笔记归属一致', async ({ page, isMob
   if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
   await expect(page.locator('.curriculum-nav .current-lesson')).toHaveCount(goLessons.length);
   await page.locator('.curriculum-nav a[href="/learn/go-errors"]').click();
-  await page
+  const nextLink = page
     .getByRole('navigation', { name: '章节翻页' })
-    .getByRole('link', { name: /下一节/ })
-    .click();
+    .getByRole('link', { name: /下一节/ });
+  await expect(nextLink).toHaveAttribute('href', '/learn/go-testing');
+  await nextLink.click();
   await expect(page).toHaveURL(/go-testing$/);
   const noteLink = page.getByRole('link', { name: '记下我的理解', exact: true });
   await expect(noteLink).toHaveAttribute('href', '/notes?lesson=go-testing');
