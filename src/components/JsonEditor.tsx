@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createHighlighterCore } from 'shiki/core';
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
 import json from 'shiki/langs/json.mjs';
@@ -14,11 +14,16 @@ const highlighter = createHighlighterCore({
 export function JsonEditor({
   value,
   onChange,
+  label = '实验 JSON 配置',
+  maxLength,
 }: {
   value: string;
   onChange: (value: string) => void;
+  label?: string;
+  maxLength?: number;
 }) {
   const [html, setHtml] = useState('');
+  const highlight = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let cancelled = false;
     highlighter.then((instance) => {
@@ -28,6 +33,7 @@ export function JsonEditor({
             lang: 'json',
             themes: { light: 'github-light', dark: 'github-dark-default' },
             defaultColor: false,
+            tabindex: false,
           }),
         );
     });
@@ -38,15 +44,23 @@ export function JsonEditor({
   return (
     <div className="json-editor">
       <div
+        ref={highlight}
         className="editor-highlight"
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: html }}
       />
       <textarea
-        aria-label="实验 JSON 配置"
+        aria-label={label}
+        maxLength={maxLength}
         spellCheck={false}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onScroll={(event) => {
+          if (highlight.current) {
+            highlight.current.scrollTop = event.currentTarget.scrollTop;
+            highlight.current.scrollLeft = event.currentTarget.scrollLeft;
+          }
+        }}
         style={!html ? { color: 'var(--text)' } : undefined}
       />
     </div>

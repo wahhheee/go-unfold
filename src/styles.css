@@ -1631,6 +1631,43 @@ strong {
   font-size: inherit;
   padding: 0;
 }
+.roundtrip-editor {
+  padding: 0 18px;
+}
+.roundtrip-editor .json-editor {
+  height: 144px;
+  min-height: 144px;
+}
+.roundtrip-editor .editor-highlight {
+  height: 100%;
+  overflow: hidden;
+}
+.roundtrip-editor .editor-highlight pre {
+  min-height: 100%;
+}
+.roundtrip-editor textarea {
+  overflow: auto;
+  scrollbar-width: none;
+}
+.roundtrip-output {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--secondary);
+}
+.roundtrip-output code {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.prose .concept-error {
+  margin: 0 18px 16px;
+  color: var(--danger);
+  font-size: 12px;
+}
 .editor-loading {
   min-height: 212px;
   padding: 20px;

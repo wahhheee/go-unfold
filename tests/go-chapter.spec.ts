@@ -197,3 +197,45 @@ test('defer 时间线：实参快照与命名返回值', async ({ page }) => {
   await expect(lab.locator('.scenario-lanes')).toContainText('返回 6');
   await expect(lab.getByRole('button', { name: '下一步' })).toBeDisabled();
 });
+
+test('往返实验：反例、修复、输入验证与重置', async ({ page }) => {
+  await page.goto('/learn/go-testing#lab');
+  const lab = page.getByRole('region', { name: '反例发现实验' });
+  const run = lab.getByRole('button', { name: '验证往返性质' });
+  const input = lab.getByRole('textbox', { name: '往返测试 JSON 输入' });
+  await run.click();
+  await expect(lab.getByRole('status')).toContainText('本次样例通过');
+  await lab.getByRole('combobox', { name: '输入样例' }).selectOption('[0]');
+  await expect(lab.locator('.roundtrip-output')).toContainText('待验证');
+  await run.click();
+  await expect(lab.getByRole('status')).toContainText('性质失败');
+  await expect(lab.locator('.roundtrip-output code')).toHaveText(['[]', '[]']);
+  await lab.getByRole('combobox', { name: '编码实现' }).selectOption('correct');
+  await run.click();
+  await expect(lab.locator('.roundtrip-output code')).toHaveText(['[0]', '[0]']);
+  await input.fill('[0, 255]');
+  await run.click();
+  await expect(lab.getByRole('status')).toContainText('本次样例通过');
+  await input.fill('[256]');
+  await run.click();
+  await expect(lab.getByRole('alert')).toBeVisible();
+  await expect(lab.locator('.roundtrip-output')).toContainText('待验证');
+  await input.fill(
+    JSON.stringify(
+      Array.from({ length: 64 }, () => 255),
+      null,
+      2,
+    ),
+  );
+  await input.press('ControlOrMeta+End');
+  expect(await input.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await expect
+    .poll(() => lab.locator('.editor-highlight').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  await run.click();
+  await expect(lab.getByRole('status')).toContainText('本次样例通过');
+  await lab.getByRole('button', { name: '重置反例实验' }).click();
+  await expect(input).toHaveValue('[1, 2, 3]');
+  await expect(lab.getByRole('combobox', { name: '编码实现' })).toHaveValue('broken');
+  await expect(lab.getByRole('status')).toContainText('目标性质');
+});

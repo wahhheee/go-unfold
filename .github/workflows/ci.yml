@@ -19,6 +19,9 @@ jobs:
           go-version: '1.27.x'
           cache: false
       - run: npm run test:go
+      - run: npm run test:go:vet
+      - run: npm run test:go:race
+      - run: npm run test:go:fuzz
       - run: npm run format:check
       - run: npm run check
       - run: npx playwright install --with-deps chromium

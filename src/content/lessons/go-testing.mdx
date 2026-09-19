@@ -1,0 +1,213 @@
+import { testingFollowups } from '../go/testing';
+
+<section id="contract" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 好测试要能解释，为什么这里应该失败</div>
+
+## 从输入域、输出关系和副作用推导断言。
+
+前面九节里的例子都在强调前提：切片是否共享、接口是否含 typed nil、关闭资源是否也失败。测试的工作就是把这些前提固定下来，并在结论被破坏时明确报错。只调用一次函数、看它没有 panic，远远不够。
+
+先写出契约：允许哪些输入，成功返回什么，失败保留什么信息，是否改变传入对象，谁负责释放资源。表驱动测试把这些情况组织在一起，但表格本身不会自动补齐遗漏。
+
+```go
+func TestRoundTrip(t *testing.T) {
+    cases := []struct {
+        name string
+        values []int
+    }{
+        {"普通序列", []int{1, 2, 3}},
+        {"前导零", []int{0, 1}},
+        {"空序列", []int{}},
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {
+            data, err := Encode(tc.values)
+            if err != nil { t.Fatal(err) }
+            got, err := Decode(data)
+            if err != nil { t.Fatal(err) }
+            if !slices.Equal(got, tc.values) {
+                t.Fatalf("往返改变了元素：%v -> %v", tc.values, got)
+            }
+        })
+    }
+}
+```
+
+这里 Encode、Decode 使用 JSON 编解码 `[]int`，契约是元素序列不变，不要求保留 nil 与非 nil 空切片的身份。没有把字节直接声明成 `[]byte`，因为 `encoding/json` 对它有 base64 特殊编码规则。输入域和比较方式都必须有意识地选择。
+
+覆盖率可以提醒哪些语句没被触及，但不能证明断言有效，也不能覆盖所有输入组合和并发交错。一个只执行代码、从不检查结果的测试，也可能得到很高的语句覆盖率。
+
+<Quiz id="go-test-coverage" />
+
+</section>
+
+<section id="lifecycle" className="lesson-section">
+
+<div className="section-kicker">02 / 并行让生命周期问题更明显</div>
+
+## t.Cleanup 等测试与子测试结束，defer 跟随函数返回。
+
+子测试调用 `t.Parallel()` 后会先暂停，等待父测试函数允许并行子测试继续。若父函数用 defer 关闭共享数据库，可能在子测试真正使用前就关闭了资源。父级 `t.Cleanup` 的生命周期包含其子测试，更适合承担这类清理责任。
+
+```go
+func TestGroup(t *testing.T) {
+    resource := newResource()
+    t.Cleanup(resource.Close)
+    for i := range 3 {
+        t.Run(fmt.Sprint(i), func(t *testing.T) {
+            t.Parallel()
+            checkResource(t, resource)
+        })
+    }
+}
+```
+
+这段是生命周期示意，newResource 与 checkResource 由具体测试夹具提供。共享资源仍必须支持并发使用；把清理顺序改正确，不代表数据隔离也正确。`examples/go/quality` 用一个受控标记验证了这个顺序，并通过竞态检测。
+
+Go 1.24 起 `t.Context()` 在 Cleanup 回调执行前被取消，Cleanup 可等待响应这个取消的后台任务退出。它也不意味着测试框架会强杀任意子 goroutine；任务必须监听取消，等待动作还应有合理超时。
+
+Go 1.22 的循环变量变化仅覆盖采用相应语言版本的声明形式。即便变量捕获已正确，子测试仍可能共享 map、连接、临时目录中的同名文件或进程环境。是否能 Parallel，取决于隔离与契约。
+
+<Quiz id="go-test-cleanup" />
+
+</section>
+
+<section id="time" className="lesson-section">
+
+<div className="section-kicker">03 / 不要用猜测时长替代同步</div>
+
+## 虚拟时间可以让超时测试快且可重复。
+
+Go 1.25 起正式提供 `testing/synctest`。它在受控 bubble 中运行测试与其创建的 goroutine，并使用虚拟时钟。下面验证一秒截止时间前后两个相邻点，不需要真的等待一秒：
+
+```go
+func TestDeadline(t *testing.T) {
+    synctest.Test(t, func(t *testing.T) {
+        ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+        defer cancel()
+        time.Sleep(time.Second - time.Nanosecond)
+        synctest.Wait()
+        if ctx.Err() != nil { t.Fatal("不应提前到期") }
+        time.Sleep(time.Nanosecond)
+        synctest.Wait()
+        if ctx.Err() != context.DeadlineExceeded {
+            t.Fatal("应到期")
+        }
+    })
+}
+```
+
+虚拟时间只在 bubble 内满足规定的持久阻塞条件时前进；Wait 用来等待其他 G 到达稳定阻塞或结束状态，不是任意快进按钮。网络 I/O、外部进程、普通互斥锁等待等有明确限制。测试应自包含，不能把真实远端响应时间伪装成可控制的时钟。
+
+这与性能剖析一节的 trace 不同：trace 记录真实执行发生了什么，synctest 为适合的单元测试建立受控执行条件。两者都不穷举全部可能调度。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">04 / 一个反例，胜过一千次碰巧通过</div>
+
+## “往返后元素不变”比几组固定期望更广。
+
+先用普通序列运行缺陷版，再换到“包含前导零”或“最小反例”。最后切换正确实现，或直接编辑 JSON，观察同一性质的判断结果。
+
+<RoundTripLab />
+
+缺陷版在编码前删除了前导零，看起来像无害的“规范化”，却破坏了输入元素序列。普通样例通过不能排除它；`[0]` 已足以反驳整个错误承诺。真正的 fuzz 会持续生成和变异输入，并尝试简化失败样本。
+
+```go
+func FuzzRoundTrip(f *testing.F) {
+    f.Add([]byte{0, 1})
+    f.Add([]byte{1, 2, 3})
+    f.Fuzz(func(t *testing.T, input []byte) {
+        if len(input) > 64 { t.Skip() }
+        values := make([]int, len(input))
+        for i, b := range input { values[i] = int(b) }
+        encoded, err := Encode(values)
+        if err != nil { t.Fatal(err) }
+        decoded, err := Decode(encoded)
+        if err != nil { t.Fatal(err) }
+        if !slices.Equal(values, decoded) {
+            t.Fatalf("往返不等：%v -> %v", values, decoded)
+        }
+    })
+}
+```
+
+Go fuzz 的 []byte 输入覆盖任意字节，再转换成受限范围的整数序列。长度上限是这里的实验输入域，不是通用协议的限制。性质要准确：错误的性质也会制造无意义失败，随意排除真实有效输入又会掩盖缺陷。
+
+普通 `go test` 会执行种子和已保存的失败语料，不会自动启动持续变异。运行探索需要显式参数：
+
+```bash
+go test ./quality -run '^$' -fuzz '^FuzzRoundTrip$' \
+  -fuzztime=5s -parallel=2
+```
+
+发现问题后先确认契约，保留 `testdata/fuzz` 中的失败语料作为回归输入，再修复实现。本文的已知最小反例还单独写成了固定测试，验证有意缺陷确实会被发现；正常 fuzz 入口只检查正确实现。
+
+<Quiz id="go-test-fuzz" />
+
+</section>
+
+<section id="workflow" className="lesson-section">
+
+<div className="section-kicker">05 / 每种工具回答自己的问题</div>
+
+## 测试通过，是带范围的证据。
+
+```bash
+go test ./...
+go test -race -shuffle=on -count=1 ./...
+go vet ./...
+```
+
+默认测试可能使用成功结果缓存；`-count=1` 可强制此次重新执行。shuffle 能揭示部分顺序依赖，失败时应保留随机种子以重现。race detector 检查实际执行中的竞态，不能枚举全部输入与调度，也不保证发现死锁、逻辑丢失更新或外部一致性问题。
+
+<Quiz id="go-test-race" />
+
+vet 是静态分析，检查一组可疑模式；它既可能存在局限，也不是业务正确性证明。已安装并固定版本的 `govulncheck` 可检查已知漏洞及调用可达性，但这与功能测试、竞态检测各有不同覆盖范围。本项目的第一章质量门槛执行示例、vet、race 和短时 fuzz，不把没有运行过的漏洞扫描写成已通过。
+
+### 工具链与依赖，也是可复现的一部分
+
+`go.mod` 的 go 指令表达最低版本要求并影响包的语言语义；toolchain 指令提供主模块使用的建议工具链，是否自动选择或下载还受 `GOTOOLCHAIN` 等条件影响。安装了新 Go，不等于旧模块立刻采用全部新语言行为。
+
+依赖更新需要审查 go.mod、go.sum 和相关测试。`go mod verify` 校验下载模块内容，不证明依赖没有漏洞；`go mod tidy` 整理依赖，也不代表升级已兼容。Go 1.24 起可用 tool 指令管理工具依赖，让团队显式记录所用版本。
+
+这份学习应用已把真实 Go 示例、静态检查、竞态检测、短时 fuzz，以及前端单测和浏览器流程接入 CI。实际 PostgreSQL、Redis 和分布式系统契约，会在对应模块添加必要集成测试；当前不会用一个内存替身冒充数据库语义验证。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 追问测试所没有覆盖的条件</div>
+
+## 绿灯之后，也要知道剩下什么风险。
+
+<Followups items={testingFollowups} />
+
+面试表达：“我从输入域、结果和副作用写契约，用表驱动覆盖边界，用 Cleanup 管理测试资源。适合的并发逻辑用 synctest 控制时间，fuzz 探索性质反例，race 检查执行到的竞态。最后固定工具链与依赖，把失败语料和 CI 留下来；任何通过结果都要说明覆盖范围。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 第一章，到这里形成闭环</div>
+
+## 从语言语义，到运行时，再到验证自己的结论。
+
+现在可以沿一条完整链路思考 Go 服务：值复制了什么，接口保存了什么，约束允许什么操作，容器共享了什么；任务怎样调度，对象为何存活；失败如何传播，性能怎样测量，结论怎样被反例检验。
+
+复习时挑一个例子，换掉它的前提再推一遍：把切片容量改小、把错误换成 typed nil、把结果长期保存、把测试改成并行。能解释变化，比背住原输出更接近工程能力。下一模块的并发编程会继续展开同步与协议，本次先完成第一章。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>契约生断言 · 生命周期管清理 · 反例留回归 · 工具各有边界</strong>
+</div>
+
+核验日期：2026-09-19，基线 Go 1.27.1。原生 fuzz 1.18、T.Context 1.24、正式 testing/synctest 1.25。`examples/go/quality` 提供并行清理、虚拟截止时间、固定反例与可持续运行的 fuzz 入口。
+
+<SourceList />
+<LessonFinish />
+
+</section>
