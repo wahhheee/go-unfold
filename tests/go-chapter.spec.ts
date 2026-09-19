@@ -137,3 +137,23 @@ test('map 探测：碰撞、墓碑与不存在的键', async ({ page }) => {
   await expect(lab.getByRole('status')).toContainText('键不存在');
   await expect(lab.locator('.probe-slot.found')).toHaveCount(0);
 });
+
+test('调度时间线：阻塞线程移交 P 与播放控制', async ({ page }) => {
+  await page.goto('/learn/go-scheduler#lab');
+  const lab = page.getByRole('region', { name: '调度时间线' });
+  await lab.getByRole('combobox').selectOption('syscall');
+  await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('线程本身');
+  await lab.getByRole('button', { name: '下一步' }).click();
+  await expect(lab.locator('.scenario-lanes')).toContainText('交给 M1');
+  await expect(lab.locator('.scenario-lanes')).toContainText('仍在系统调用');
+  await lab.getByRole('button', { name: '重新播放' }).click();
+  await expect(lab.locator('.scenario-navigation')).toContainText('步骤 1');
+  await lab.getByRole('combobox').selectOption('preempt');
+  await lab.getByRole('button', { name: '自动播放' }).click();
+  await expect(lab.getByRole('button', { name: '暂停播放' })).toBeVisible();
+  await expect(lab.getByRole('status')).toContainText('不保证你的业务', { timeout: 8000 });
+  await expect(lab.getByRole('button', { name: '下一步' })).toBeDisabled();
+  await lab.getByRole('button', { name: '上一步', exact: true }).click();
+  await expect(lab.getByRole('status')).toContainText('重新变成可运行');
+});

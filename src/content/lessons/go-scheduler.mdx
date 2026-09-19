@@ -1,0 +1,154 @@
+import { schedulerFollowups } from '../go/scheduler';
+import { schedulerScenarios } from '../../lib/scheduling';
+
+<section id="model" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 从正在运行到等待机会</div>
+
+## G 是待执行的任务，M 是线程，P 是执行 Go 代码所需的资源。
+
+想象服务有一万个连接，大多数都在等网络。把每个连接固定绑到一个一直等待的专用线程，资源成本会很高。Go 运行时把 goroutine 调度到操作系统线程上，允许线程在一个 G 等待时去做其他工作。
+
+| 名称 | 可以怎样理解                           | 不要混淆成         |
+| ---- | -------------------------------------- | ------------------ |
+| G    | goroutine 的执行状态、栈等             | 一个永久绑定的线程 |
+| M    | 操作系统线程，实际执行指令             | 业务并发数量       |
+| P    | 执行普通 Go 代码所需的调度与运行时资源 | 一颗固定物理 CPU   |
+
+普通 Go 代码运行时，M 需要关联 P。G 可以是 runnable（可以运行但正在排队）、running（正在执行）、waiting（等待事件），还存在系统调用等状态。**等待运行与等待某个条件，不是同一种等待。** 排队多可能说明 CPU 紧张；阻塞多也可能是锁、I/O 或下游容量问题。
+
+GMP 是当前 Go 运行时实现模型，不是语言规范要求所有 Go 实现都采用的架构。操作系统仍在调度 M，CPU 配额也可能让拥有可运行 G 的线程暂时得不到 CPU。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 追踪资源归属，而不是只看一根箭头</div>
+
+## G 阻塞和 M 阻塞，处理方式可能不同。
+
+<ScenarioPlayer
+  title="调度时间线"
+  scenarios={schedulerScenarios}
+  boundary="GOMAXPROCS=1、两个业务 G 的有限状态示意。每条时间线只展示一种合法路径，不执行真实 Go 调度，不承诺固定顺序或耗时；省略 GC 工作、系统监控线程、队列细节、线程绑定及平台特例。"
+/>
+
+对支持运行时网络轮询的 I/O，等待中的 G 可以被挂起，M 与 P 继续执行其他就绪 G。对于真正阻塞线程的系统调用，M 可能停在内核里，运行时通过 P 移交等机制维持其他 Go 工作。系统调用返回时，如果暂时拿不到 P，原 G 也未必立即继续。
+
+这不意味着每次 syscall 都立刻创建一个新线程，也不意味着所有 I/O 都能用一条 netpoll 规则解释。短调用、调用类型、平台以及可用线程都会改变具体路径。
+
+<Quiz id="go-scheduler-p" />
+
+</section>
+
+<section id="queues" className="lesson-section">
+
+<div className="section-kicker">03 / 平衡局部性、吞吐与响应</div>
+
+## 工作窃取改善均衡，抢占提供重新调度机会。
+
+当前调度器维护按 P 分布的运行队列，也使用全局队列；空闲执行资源可以从其他 P 寻找工作，并检查网络就绪、定时器等来源。局部队列减少争用并保留一定局部性，工作窃取让任务不至于长期堆在一侧。
+
+具体队列长度、抽取比例、检查频率是版本相关策略。能背出几个常量不等于能解释系统：关键是任务在哪里等待、哪种事件让它重新就绪、可用执行资源是否受限。
+
+### 从协作检查到异步安全点
+
+Go 1.14 引入异步抢占支持，具体机制有平台差异。当前运行时同时处理阻塞安全点、函数入口等同步检查，以及可安全暂停的异步位置。抢占还要与栈和寄存器扫描、运行时关键区域协调，因此不能在任意机器指令上毫无约束地切走。
+
+运行时源码存在约 10ms 的强制抢占请求阈值，但这不是严格轮转时间片，更不是请求的最大调度等待时间。发出请求、到达可处理位置、获得操作系统 CPU 时间和业务真正开始执行，是不同事件。
+
+<Quiz id="go-scheduler-preempt" />
+
+`runtime.Gosched()` 主动让出执行机会，不建立业务同步关系，也不保证某个指定 goroutine 接下来运行。`time.Sleep` 同样不是等待另一个任务完成的可靠协议；应使用明确的 channel、WaitGroup 等完成机制。
+
+</section>
+
+<section id="limits" className="lesson-section">
+
+<div className="section-kicker">04 / 并行度不等于并发量，也不等于吞吐配额</div>
+
+## GOMAXPROCS 限制并行执行 Go 代码的能力。
+
+它不是 goroutine 数量上限，也不是线程总数上限。GOMAXPROCS=1 时仍可以有很多并发 G，只是普通 Go 代码的并行执行受到限制。多个 G 依然可能交错访问同一变量，数据竞争和丢失更新不会自动消失。
+
+从 Go 1.25 起，默认选择会考虑逻辑 CPU、进程 CPU affinity，以及 Linux cgroup 的平均 CPU 吞吐配额，并支持周期更新。配额是时间窗口内允许消耗的 CPU 时间，不是“允许同时使用几颗核”的同义词。
+
+当前默认算法还有取整和下界细节：分数 CPU 配额向上取整，通常不会因为配额低于 2 就把默认值降到 2 以下，除非逻辑 CPU 或 affinity 本身更少。不要把默认值简单背成 `min(核数, limit)`。
+
+显式设置环境变量或调用 `runtime.GOMAXPROCS(n)` 会关闭该默认自动更新行为；`runtime.SetDefaultGOMAXPROCS()` 可以恢复。模块语言版本与 `GODEBUG` 默认值也会影响兼容行为，不能只看 `go version`。
+
+```go
+parallelism := runtime.GOMAXPROCS(0) // 查询，不修改
+fmt.Println(parallelism)
+```
+
+这个结果取决于运行环境，不应写成固定数字的面试答案。实际排障还要看容器 CPU throttling、就绪队列、负载类型与尾延迟；把 P 调得比可持续 CPU 配额高，可能更快耗尽时间窗口内的预算。
+
+<Quiz id="go-scheduler-container" />
+
+</section>
+
+<section id="lifetime" className="lesson-section">
+
+<div className="section-kicker">05 / 每次 go，都要知道怎样结束</div>
+
+## 取消只是信号，收尾需要等待。
+
+```go
+func start(ctx context.Context) <-chan struct{} {
+    done := make(chan struct{})
+    go func() {
+        defer close(done)
+        <-ctx.Done()
+        // 在这里完成本任务拥有的资源清理
+    }()
+    return done
+}
+
+ctx, cancel := context.WithCancel(context.Background())
+done := start(ctx)
+cancel()
+<-done // 明确等待任务退出
+```
+
+这个最小例子只等待取消；真实任务还要在可能阻塞的发送、接收、I/O 或计算循环中提供响应取消的路径。context 不会强制结束 goroutine，不会自动关闭任意连接，也不会替你撤销已经发生的外部副作用。
+
+Go 1.25 新增 `WaitGroup.Go`，方便登记任务并等待；按其契约，传入函数不能 panic。它本身不提供错误传播或取消，也不能替代有界并发策略。使用任何任务管理方式，都应回答“谁创建、谁取消、谁等完成”。
+
+### Go 1.27 的泄漏画像是一种新的证据
+
+`runtime/pprof` 现在正式提供 `goroutineleak` 画像，基于 GC 可达性寻找一类不可能再被唤醒的阻塞 G。它不是所有业务泄漏的完备检测器；同步对象仍从全局或活动 G 可达时，部分实际泄漏无法被识别。普通 goroutine 栈与数量趋势仍然有价值，不能用一个空画像宣布系统没有泄漏。
+
+<Quiz id="go-scheduler-cancel" />
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 用模型解释现象，不用名词代替推理</div>
+
+## 请求慢，先确认它在等什么。
+
+<Followups items={schedulerFollowups} />
+
+面试表达：“G 表示任务状态，M 是线程，P 提供执行 Go 代码所需资源。网络等待通常挂起 G，阻塞系统调用可能占住 M，此时 P 可被移交。就绪任务通过队列与窃取被调度，抢占受安全点约束，没有固定业务延迟保证。最后我会把并行度、容器配额和任务生命周期分别观测。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 每个状态，都配一个退出条件</div>
+
+## 等 CPU、等事件、等退出，要用不同的证据。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>G 管任务 · M 是线程 · P 供执行 · 取消之后等收尾</strong>
+</div>
+
+核验日期：2026-09-19。运行时观察按 Go 1.27.1；异步抢占 1.14、容器默认策略与 WaitGroup.Go 1.25、正式 goroutineleak 画像 1.27。`examples/go/scheduler` 验证单 P 下阻塞任务让出执行、取消后等待退出，以及当前工具链的画像入口；不把某一次测试顺序当作调度保证。
+
+<SourceList />
+<LessonFinish />
+
+</section>

@@ -3,6 +3,7 @@ import { interfaceQuestions } from './go/interfaces';
 import { genericQuestions } from './go/generics';
 import { sequenceQuestions } from './go/sequences';
 import { mapQuestions } from './go/maps';
+import { schedulerQuestions } from './go/scheduler';
 
 export type Question = {
   id: string;
@@ -76,6 +77,7 @@ export const questions: Question[] = [
   ...genericQuestions,
   ...sequenceQuestions,
   ...mapQuestions,
+  ...schedulerQuestions,
 ];
 
 export function getQuestion(id: string): Question {

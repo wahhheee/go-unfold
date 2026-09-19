@@ -1099,6 +1099,45 @@ strong {
   display: grid;
   gap: 22px;
 }
+.scenario-stage {
+  padding: 20px;
+  background: var(--soft);
+}
+.scenario-stage h3 {
+  margin: 0 0 16px;
+  min-height: 29px;
+  font-size: 16px;
+}
+.scenario-lanes {
+  display: grid;
+  gap: 8px;
+}
+.scenario-lanes > div {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  min-height: 46px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.scenario-lanes strong {
+  color: var(--accent);
+  font-size: 13px;
+}
+.scenario-lanes span {
+  font-size: 13px;
+  color: var(--heading);
+}
+.scenario-navigation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  gap: 12px;
+}
+.scenario-navigation > span {
+  font-size: 12px;
+  color: var(--muted);
+}
 .probe-group > strong {
   display: block;
   min-height: 26px;
