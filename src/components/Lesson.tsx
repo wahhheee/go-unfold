@@ -1,4 +1,4 @@
-import { createContext, Fragment, Suspense, useContext, useEffect, useState } from 'react';
+import { createContext, Fragment, lazy, Suspense, useContext, useEffect, useState } from 'react';
 import { MDXProvider } from '@mdx-js/react';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -26,23 +26,51 @@ import { useLearning } from '../state/learning';
 import { Callout } from './Callout';
 import { CodeBlock } from './CodeBlock';
 import { Followups } from './Followups';
-import { LockLab } from './LockLab';
 import { Quiz } from './Quiz';
-import { ValueCopyLab } from './ValueCopyLab';
-import { InterfaceLab } from './InterfaceLab';
-import { ConstraintLab } from './ConstraintLab';
-import { SliceLab } from './SliceLab';
-import { MapProbeLab } from './MapProbeLab';
-import { ScenarioPlayer } from './ScenarioPlayer';
-import { GCBudgetLab } from './GCBudgetLab';
-import { ProfileLab } from './ProfileLab';
-import { RoundTripLab } from './RoundTripLab';
-import { HappensBeforeLab } from './HappensBeforeLab';
-import { ChannelLab } from './ChannelLab';
-import { SelectLab } from './SelectLab';
-import { SnapshotLab } from './SnapshotLab';
-import { ContextBudgetLab } from './ContextBudgetLab';
 import type { ComponentPropsWithoutRef } from 'react';
+
+const LockLab = lazy(() => import('./LockLab').then((module) => ({ default: module.LockLab })));
+const ValueCopyLab = lazy(() =>
+  import('./ValueCopyLab').then((module) => ({ default: module.ValueCopyLab })),
+);
+const InterfaceLab = lazy(() =>
+  import('./InterfaceLab').then((module) => ({ default: module.InterfaceLab })),
+);
+const ConstraintLab = lazy(() =>
+  import('./ConstraintLab').then((module) => ({ default: module.ConstraintLab })),
+);
+const SliceLab = lazy(() => import('./SliceLab').then((module) => ({ default: module.SliceLab })));
+const MapProbeLab = lazy(() =>
+  import('./MapProbeLab').then((module) => ({ default: module.MapProbeLab })),
+);
+const ScenarioPlayer = lazy(() =>
+  import('./ScenarioPlayer').then((module) => ({ default: module.ScenarioPlayer })),
+);
+const GCBudgetLab = lazy(() =>
+  import('./GCBudgetLab').then((module) => ({ default: module.GCBudgetLab })),
+);
+const ProfileLab = lazy(() =>
+  import('./ProfileLab').then((module) => ({ default: module.ProfileLab })),
+);
+const RoundTripLab = lazy(() =>
+  import('./RoundTripLab').then((module) => ({ default: module.RoundTripLab })),
+);
+const HappensBeforeLab = lazy(() =>
+  import('./HappensBeforeLab').then((module) => ({ default: module.HappensBeforeLab })),
+);
+const ChannelLab = lazy(() =>
+  import('./ChannelLab').then((module) => ({ default: module.ChannelLab })),
+);
+const SelectLab = lazy(() =>
+  import('./SelectLab').then((module) => ({ default: module.SelectLab })),
+);
+const SnapshotLab = lazy(() =>
+  import('./SnapshotLab').then((module) => ({ default: module.SnapshotLab })),
+);
+const ContextBudgetLab = lazy(() =>
+  import('./ContextBudgetLab').then((module) => ({ default: module.ContextBudgetLab })),
+);
+const PoolLab = lazy(() => import('./PoolLab').then((module) => ({ default: module.PoolLab })));
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
   return (
@@ -151,6 +179,7 @@ const mdxComponents = {
   SelectLab,
   SnapshotLab,
   ContextBudgetLab,
+  PoolLab,
   LockLab,
   Followups,
   SourceList,

@@ -1,0 +1,178 @@
+import { poolFollowups } from '../concurrency/pool';
+
+<section id="boundary" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 有界队列，队列外却没有界</div>
+
+## 先数清所有持有任务的地方。
+
+你启动 8 个 worker，创建容量 100 的 jobs，于是宣布“最多 108 个任务，内存已经有界”。但入口这样写：
+
+```go
+func submit(job Job) {
+    go func() { jobs <- job }()
+}
+```
+
+队列满了，任务没有消失，只是被越来越多的 goroutine 持有，阻塞在发送位置。每个 G 除了栈，还可能保留 job 引用的请求体、Context、缓冲区与其他对象。**有限的是池内，增长的是池外。**
+
+对一个受控的固定工作者模型，要分别检查运行中的 N 项、内部排队的 Q 项、等待提交的 P 项，以及输入、输出和历史结果的存储。只有这些部分都有上限，并且单项成本受控，才有讨论资源上界的基础。
+
+<Quiz id="con-pool-bound" />
+
+即使是 N 个 worker，每个 worker 内部再无限 go 子任务，也会绕开这个上限。名称里有“pool”不等于系统已经具备背压；背压必须让上游降低产生速度，或明确知道当前工作没有被接纳。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">02 / 把看不见的等待也放到面板里</div>
+
+## 增大队列，先延后满载，再延长等待。
+
+<PoolLab />
+
+默认每步到达 4 项，2 个 worker 每项工作要 2 步，长期处理能力跟不上到达。选择“新建 G 等待提交”，内部队列一直受容量限制，外部等待却持续增长。切换立即拒绝，积压转为调用方可以处理的明确拒绝结果。
+
+这个模型刻意让两种成本可见：拒绝会损失本轮接单机会；无限等待则消耗内存、延迟和恢复时间。真正方案通常还会结合短暂且有界的等待、超时、降级和租户隔离，不能从一个动画推导万能参数。
+
+<Quiz id="con-pool-overload" />
+
+</section>
+
+<section id="admission" className="lesson-section">
+
+<div className="section-kicker">03 / 没有接纳的任务，需要一个真实结果</div>
+
+## 满载策略是接口契约，不是队列里的小细节。
+
+| 策略           | 适合表达的结果                 | 仍要限制什么                       |
+| -------------- | ------------------------------ | ---------------------------------- |
+| 立即拒绝       | 当前繁忙，调用方决定降级或退避 | 重试风暴、错误统计和公平性         |
+| 有预算地等待   | 在剩余时间内尝试取得准入       | 同时等待者数量，不能只限制单人时长 |
+| 明确丢弃或合并 | 可丢遥测、过时刷新等特定语义   | 丢弃计数、可接受范围、任务可替代性 |
+| 持久化排队     | 接受后可在进程重启后恢复       | 队列积压、交付语义、幂等、过期任务 |
+
+非阻塞发送可以表达立即拒绝，但下面片段仅讨论运行期间的准入：jobs 的关闭必须由独立协议确保不会与发送并发。
+
+```go
+select {
+case jobs <- job:
+    return nil
+default:
+    return ErrBusy
+}
+```
+
+`len(jobs) < cap(jobs)` 后再发送不等价，因为检查与发送之间可能被其他提交者插入。给发送加 ctx.Done 可以限制当前等待，却不限制到底有多少提交者同时进入等待。
+
+队列也会让任务在开始执行前耗掉预算。worker 应检查任务是否已过期，处理函数继续接收取消；已经过时的工作不应默默霸占下游资源。调用方收到拒绝后立即无限重试，会把降载重新变成压力，应按业务设计退避、抖动、最大尝试和总体截止时间。
+
+评估容量时同时看排队深度、最老任务年龄、排队与服务耗时、拒绝率、取消率和下游饱和。深度相同的两个队列，若单任务分别执行 1ms 和 1s，后果差得很远；容量不是脱离服务成本的魔法数字。
+
+</section>
+
+<section id="implementation" className="lesson-section">
+
+<div className="section-kicker">04 / 启动数量有界，阻塞出口明确</div>
+
+## 有限批处理可以固定 worker，再让一个生产者送任务。
+
+仓库中的 `examples/go/workerpool.Run` 采用一个生产者、固定 N 个 worker、容量 Q 的队列和同一个 errgroup。生产者拥有队列关闭权；worker 只接收；任一工作返回错误会取消其他路径；Run 等全部结束后再返回。
+
+```go
+g.Go(func() error {
+    defer close(jobs)
+    for index, value := range inputs {
+        select {
+        case jobs <- Job{Index: index, Value: value}:
+        case <-taskCtx.Done():
+            return taskCtx.Err()
+        }
+    }
+    return nil
+})
+
+for range workers {
+    g.Go(func() error {
+        for {
+            if err := taskCtx.Err(); err != nil { return err }
+            select {
+            case <-taskCtx.Done():
+                return taskCtx.Err()
+            case job, ok := <-jobs:
+                if !ok { return nil }
+                value, err := work(taskCtx, job.Value)
+                if err != nil { return err }
+                results[job.Index] = value
+            }
+        }
+    })
+}
+```
+
+这段摘出调度主体：Job、jobs、results 与 taskCtx 由外围初始化，完整可编译版本在示例包。外围还要校验 workers 为正、容量非负与处理函数非 nil，并在启动结束后调用 g.Wait。代码不把 producer 也放进一个恰好占满的 SetLimit 中，避免把启动阶段堵住。
+
+work 必须能响应 Context 并最终返回，否则这个池也无法强制回收它。循环前检查取消降低不必要工作，但检查之后仍可能发生取消；不能承诺取消时刻之后绝不会开始任何副作用。需要严格业务准入时，必须另有同步协议和资源侧条件。
+
+### 并行完成，按输入顺序返回
+
+每个 Job 携带下标，结果数组预先分配，每个任务写独立位置。Wait 后读取可以保持结果次序，不必让执行按次序串行。若直接并发 append 到一个共享 slice，不仅结果会按完成顺序混排，还会引入数据竞争。
+
+<Quiz id="con-pool-order" />
+
+这个 Run 面向**有限输入**，并不声称总内存与输入规模无关：inputs 与 results 都随批量大小增长。无限数据源需要分页、流式消费或有界结果通道，同时继续处理下游提前退出时的取消与 join。部分任务已产生的外部副作用，也不会因整体返回 error 自动回滚。
+
+</section>
+
+<section id="shutdown" className="lesson-section">
+
+<div className="section-kicker">05 / 服务要退出，每个任务都要有去向</div>
+
+## 先关闭准入，再决定已接单工作的结局。
+
+长期运行的池通常需要 open、draining、stopped 等状态，但只有状态名称没有用。停止接单与接受新任务必须通过同一个同步协议决定先后；然后等待仍可能发送的提交者退出，才可安全关闭任务通道。
+
+<Quiz id="con-pool-close" />
+
+排空模式允许已接纳工作继续完成，超出关闭期限后可以升级为中止；中止通过 Context 通知执行中的工作，并明确处理尚未开始的队列任务。两者最终都需要等待 worker 退出。关掉 jobs 只会让接收者在读空之后得到 ok=false，不会直接终止正在运行的处理函数。
+
+实验将尚未进入池的外部提交者计为拒绝，队列及运行中的工作在中止时计为取消，并把清理简化为即时完成。真实实现应返回任务结果或通知等待者，不能只把内部计数清零后就宣称完成。
+
+### panic、重试和持久化交接
+
+worker 中的 panic 不会自动被 errgroup 包成 error。是否隔离某类插件错误、是否 recover，要有明确边界；恢复后必须确认共享状态没有被破坏，且给任务一个终态。不能在任意位置吞掉 panic 再继续使用半更新的状态。
+
+任务被取消并不意味着外部写入没发生。重试需幂等或结果确认。必须在崩溃后保留的工作，应先完成持久化交接，再向调用方承诺已接纳；内存队列、goroutine 和优雅关闭都不是进程故障后的可靠交付保证。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 数量上限只是第一层</div>
+
+## 把等待、成本、顺序和退出一起审查。
+
+<Followups items={poolFollowups} />
+
+面试表达：“有界任务池要同时限制活跃执行、内部队列和外部等待者，不能先无限 go 再等额度。过载时明确拒绝或有界等待；工作者响应取消，生产者负责关闭，拥有者最终等待退出。排空与中止要给任务明确结果，外部副作用和持久交付另有协议。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 等待不会消失，只会换个地方</div>
+
+## 让资源边界覆盖整条任务路径。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>池外也有限 · 满载有回应 · 关闭先停送 · 退出要收尾</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1、x/sync v0.23.0。`examples/go/workerpool` 验证并发峰值、结果位置、零容量、空输入、无效配置、失败取消与全部清理。浏览器模型遍历全部界面参数组合检查数量守恒与容量边界，不以动画速度代替吞吐测试。
+
+<SourceList />
+<LessonFinish />
+
+</section>

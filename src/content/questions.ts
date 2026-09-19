@@ -16,6 +16,7 @@ import { atomicQuestions } from './concurrency/atomic';
 import { coordinationQuestions } from './concurrency/coordination';
 import { contextQuestions } from './concurrency/context';
 import { groupsQuestions } from './concurrency/groups';
+import { poolQuestions } from './concurrency/pool';
 
 export type Question = {
   id: string;
@@ -102,6 +103,7 @@ export const questions: Question[] = [
   ...coordinationQuestions,
   ...contextQuestions,
   ...groupsQuestions,
+  ...poolQuestions,
 ];
 
 export function getQuestion(id: string): Question {

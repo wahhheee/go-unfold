@@ -1,5 +1,27 @@
 import { expect, test } from '@playwright/test';
 
+test('任务池：外部积压、拒绝、排空与中止', async ({ page }) => {
+  await page.goto('/learn/concurrency-pool#lab');
+  const lab = page.getByRole('region', { name: '有界任务池与背压实验' });
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.getByTestId('pool-outside')).toHaveText('5');
+  await lab.getByRole('button', { name: '停止接单并排空' }).click();
+  await expect(lab.getByTestId('pool-outside')).toHaveText('0');
+  for (let i = 0; i < 6; i++) await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.getByRole('status')).toContainText('已排空');
+  await lab.getByRole('combobox').selectOption('reject');
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '推进一步' }).click();
+  await expect(lab.getByTestId('pool-outside')).toHaveText('0');
+  await expect(lab.getByTestId('pool-rejected')).toHaveText('5');
+  await lab.getByRole('button', { name: '中止未完成任务' }).click();
+  await expect(lab.getByTestId('pool-canceled')).toHaveText('5');
+  await expect(lab.getByRole('button', { name: '推进一步' })).toBeDisabled();
+  await lab.getByRole('button', { name: '重置任务池' }).click();
+  await lab.getByRole('button', { name: '自动播放' }).click();
+  await expect(lab.locator('.live-label')).toHaveText(/第 [1-9]\d* 步/);
+  await lab.getByRole('button', { name: '暂停播放' }).click();
+});
+
 test('任务组时间线：遗留发送、等待清理与共享调用', async ({ page }) => {
   await page.goto('/learn/concurrency-groups#lab');
   const lab = page.getByRole('region', { name: '任务组与共享调用时间线' });

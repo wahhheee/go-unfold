@@ -20,6 +20,7 @@ import { atomicLesson } from './concurrency/atomic';
 import { coordinationLesson } from './concurrency/coordination';
 import { contextLesson } from './concurrency/context';
 import { groupsLesson } from './concurrency/groups';
+import { poolLesson } from './concurrency/pool';
 
 export type LessonDefinition = {
   id: string;
@@ -76,6 +77,7 @@ export const lessons: LessonDefinition[] = [
   coordinationLesson,
   contextLesson,
   groupsLesson,
+  poolLesson,
 ];
 
 export function findLesson(id: string) {
