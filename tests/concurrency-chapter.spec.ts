@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 
+test('Context 实验：继承、取消原因与独立预算', async ({ page }) => {
+  await page.goto('/learn/concurrency-context#lab');
+  const lab = page.getByRole('region', { name: 'Context 预算与取消实验' });
+  const child = lab.getByTestId('context-child');
+  await expect(child).toContainText('700ms');
+  await lab.getByRole('button', { name: '取消父请求' }).click();
+  await expect(child).toContainText('context.Canceled');
+  await expect(child).toContainText('调用方取消');
+  await lab.getByRole('combobox').selectOption('detached');
+  await lab.getByRole('button', { name: '取消父请求' }).click();
+  await expect(child).toContainText('未设置');
+  await expect(child).not.toContainText('context.Canceled');
+  await expect(lab.getByRole('slider', { name: '子任务预算' })).toBeDisabled();
+  await lab.getByRole('combobox').selectOption('bounded');
+  await lab.getByRole('button', { name: '取消父请求' }).click();
+  for (let i = 0; i < 9; i++) await lab.getByRole('button', { name: '推进 100ms' }).click();
+  await expect(child).toContainText('context.DeadlineExceeded');
+  await lab.getByRole('button', { name: '重置时间' }).click();
+  await expect(child).toContainText('900ms');
+});
+
 test('同步时间线：完成、错误缓存与条件重检', async ({ page }) => {
   await page.goto('/learn/concurrency-coordination#lab');
   const lab = page.getByRole('region', { name: '完成与条件时间线' });

@@ -1,0 +1,203 @@
+import { contextFollowups } from '../concurrency/context';
+
+<section id="cooperation" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 页面已经报超时，服务还在忙</div>
+
+## Context 传递的是停止意愿，不是强制结束指令。
+
+用户取消请求后，HTTP 处理函数返回了，但后台查询仍在跑，另一个 G 卡在向结果通道发送。问题不是“取消没有调用成功”，而是**执行路径没有把取消连到每个可能阻塞的位置，也没有确认任务已退出**。
+
+Context 的四个入口各有职责：Deadline 给出应该取消工作的时刻；Done 是取消通知通道；Err 给出标准取消分类；Value 传递请求范围的信息。Context 方法可以被多个 G 同时调用，但它不管理所有 G 的启动、完成和结果。
+
+```go
+func send(ctx context.Context, out chan<- Result, value Result) error {
+    select {
+    case out <- value:
+        return nil
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+```
+
+这给阻塞发送增加了取消出口，前提是 out 的关闭协议正确。两边同时就绪时仍可能选中发送，上一节 select 的规则没有改变。构造 value 的过程如果很慢，也要自己响应取消；把表达式写进发送 case 的右侧并不会推迟其求值。
+
+<Quiz id="con-context-join" />
+
+`cancel()` 不是 join。Context 接口还允许 Done 的关闭异步发生，不能把任意实现的 cancel 返回当成全链路完成屏障。即便已经观察到 Done 关闭，也只说明应该取消，任务可能正在回收资源、处理最后一步或卡在不支持取消的调用里。需要 WaitGroup、errgroup 或明确的完成通道确认退出。
+
+</section>
+
+<section id="budget" className="lesson-section">
+
+<div className="section-kicker">02 / 总预算不能按依赖重新开始</div>
+
+## 子任务取得的是父预算的剩余部分。
+
+父请求在 0ms 开始，总预算 1000ms。处理到 300ms 时，给数据库子调用设 900ms 超时。候选子截止时间是 1200ms，但父请求在 1000ms 到期，所以子任务有效截止时间仍是 1000ms，理论上最多还剩 700ms。
+
+```go
+func fetch(ctx context.Context) (Result, error) {
+    child, cancel := context.WithTimeout(ctx, 900*time.Millisecond)
+    defer cancel()
+    return query(child)
+}
+```
+
+query 必须接受并正确使用 child；这里的 Result 和 query 是业务接口示意。派生出的 CancelFunc 即使看起来会自然超时，也应该在不再需要时调用，以释放计时器和父子关系等资源。cancel 可重复调用，但不要把“多调用无害”当作可以不明确负责人的理由。
+
+<Quiz id="con-context-budget" />
+
+给每次重试都创建一个脱离原请求的 Background 加完整 timeout，会不断续出新预算。更清晰的结构是：最外层一个总预算；每次尝试用它的子 Context 和单次上限；退避等待也监听同一个总取消信号；成功或停止后及时调用当前 cancel。
+
+在很长的重试循环里，每轮都 defer cancel 到整个函数结束，会延长不必要资源的存活。可以将一次尝试封装为小函数，在其内部 defer；或在每轮确定结束时显式 cancel。还应给序列化响应与清理留余量，而不是把剩余时间全部交给最后一个依赖。
+
+Deadline 也不是精确的墙钟终止保证：调度、计时器处理、驱动取消和清理都可能有延迟。跨进程传播时还涉及协议与时钟误差，不能把进程内的时间推演当成分布式实时承诺。
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 同样派生 Context，传播关系可能完全不同</div>
+
+## 观察预算，也观察取消以后留下的原因。
+
+<ContextBudgetLab />
+
+继承模式里，取消父请求会传播给尚未取消的子任务。只用 WithoutCancel 时，子任务既没有原来的截止时间，也没有可取消的 Done。脱离后重新限时，才能获得独立预算；这仍没有解决后台工作由谁启动、限制与等待的问题。
+
+<Quiz id="con-context-detach" />
+
+</section>
+
+<section id="cause" className="lesson-section">
+
+<div className="section-kicker">04 / 标准分类与业务原因分开保存</div>
+
+## Err 看取消类别，Cause 看首次取消原因。
+
+Go 1.20 引入 WithCancelCause，可以给取消附加业务原因：
+
+```go
+ctx, cancel := context.WithCancelCause(parent)
+defer cancel(nil)
+cancel(errQuotaExceeded)
+
+fmt.Println(ctx.Err())          // context canceled
+fmt.Println(context.Cause(ctx)) // 自定义额度错误
+```
+
+假设此前没有其他取消：Err 返回 context.Canceled，Cause 返回传入的非 nil 错误。若 `cancel(nil)` 先发生，原因就是 context.Canceled；后来再传一个更“详细”的错误不会覆盖它。
+
+父子 Context 各自保留首次取消所确定的结果。子任务先因自身原因取消，之后父请求取消，不会改写子任务的既有原因；父请求先取消，则尚未取消的子任务会继承这一原因。多个 G 竞争取消时，也不能从源码调用的排列顺序推断谁一定先发生。
+
+<Quiz id="con-context-cause" />
+
+Go 1.21 的 WithTimeoutCause / WithDeadlineCause 设置的是**到期时**的自定义原因。它们返回普通 CancelFunc：若你在到期前主动 cancel，Err 和 Cause 都按主动取消处理，不会自动使用那个“预算耗尽”的自定义原因。错误记录要区分到期、主动放弃和下游实际失败。
+
+</section>
+
+<section id="ownership" className="lesson-section">
+
+<div className="section-kicker">05 / 脱离父请求，不等于没有负责人</div>
+
+## WithoutCancel 与 AfterFunc 都需要补全生命周期。
+
+Go 1.21 的 WithoutCancel 保留 Value 查询链，却不保留 Deadline、Err 和取消原因，Done 为 nil。它不是新建一份独立数据快照，也不会自动启动任何工作。
+
+```go
+detached := context.WithoutCancel(requestCtx)
+backgroundCtx, cancel := context.WithTimeout(detached, 2*time.Second)
+defer cancel()
+err := writeAudit(backgroundCtx, record)
+```
+
+这段展示独立预算下的同步调用。若改成异步，cancel 的作用域必须跟随后台任务：不能父函数刚返回，defer 就把新任务立刻取消。任务还要被服务级拥有者计数，限制并发，并在关闭服务时等待或终止；record 也应是所需数据的安全快照。
+
+不能丢的审计、结算或发信任务，需要持久化交接。一个被 WithoutCancel 脱离的 G 仍会随进程退出而消失；Context 不是任务队列，取消也不是事务回滚。
+
+### AfterFunc 的 stop 不是等待回调完成
+
+`context.AfterFunc(ctx, f)` 在 ctx 取消后于自己的 G 中调用 f；若 ctx 已取消，也会安排异步调用。它返回一个停止关联的函数：
+
+| stop 的返回值 | 可以得出的结论               | 不能得出的结论                     |
+| ------------- | ---------------------------- | ---------------------------------- |
+| true          | 本次成功阻止 f 运行          | f 会替你关闭它本来负责的 done 通道 |
+| false         | f 已开始，或关联之前已被停止 | f 已经执行完成                     |
+
+下面只展示“这个拥有者只调用一次 stop”的协调模式：
+
+```go
+finished := make(chan struct{})
+stop := context.AfterFunc(ctx, func() {
+    defer close(finished)
+    cleanup()
+})
+
+if !stop() {
+    <-finished
+}
+```
+
+在这个约定下，false 表示回调已开始，需要等 finished；true 则不能等，因为回调不会运行。若别处也调用过 stop，后续 false 可能只是“早已被阻止”，上述等待就会卡住，所以调用所有权是必要前提。cleanup 自身也必须最终返回；实际需要回调执行还是成功阻止后走主路径清理，要由资源协议决定。
+
+使用 AfterFunc 唤醒 Cond 等待者时，回调应在关联锁下改变取消条件并广播，等待者把取消纳入谓词循环。注册、停止、回调结束和资源释放不能各自随意操作同一对象。
+
+</section>
+
+<section id="values" className="lesson-section">
+
+<div className="section-kicker">06 / 请求信息可以传播，数据安全不会附赠</div>
+
+## Value 适合请求范围信息，不是隐藏参数列表。
+
+通常把 Context 作为函数第一个参数显式传递，不传 nil，暂时不知道选什么时可用 TODO 表达尚待明确的调用关系。避免将请求 Context 长期存入无关对象，也不要在每层随手改成 Background，切断上游取消与追踪。
+
+请求标识、追踪信息、认证身份等适合沿调用链传递；可选参数、业务配置、数据库连接或所有依赖则应有清楚的参数与结构体设计。key 使用包内未导出类型并提供类型安全访问器，避免不同库都用字符串 "user" 产生碰撞。
+
+```go
+type traceKey struct{}
+
+func withTrace(ctx context.Context, id string) context.Context {
+    return context.WithValue(ctx, traceKey{}, id)
+}
+func traceID(ctx context.Context) (string, bool) {
+    id, ok := ctx.Value(traceKey{}).(string)
+    return id, ok
+}
+```
+
+Context 的方法并发安全，不代表 Value 返回的 map、切片或指针对象能被多个 G 随意修改。它们仍需不可变约定或自己的锁。长时间保存 Context，或者用 WithoutCancel 保留父链，也可能延长这些对象的存活。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">07 / 请求结束，副作用与清理仍有边界</div>
+
+## 谁负责取消，谁负责确认完成？
+
+<Followups items={contextFollowups} />
+
+面试表达：“Context 是协作取消与预算传播。子任务继承更早的截止时间，每个阻塞点要真正响应，取消后仍要等待完成。Err 与 Cause 分工不同，首次取消决定结果；WithoutCancel 需要重新设置独立预算和后台归属，AfterFunc 的停止不代表回调已经结束。”
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">08 / 信号、预算、原因与完成</div>
+
+## 四件事分别说清，取消协议才完整。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>取消不强杀 · 预算向下收紧 · 原因先到先留 · 收尾另行等待</strong>
+</div>
+
+核验日期：2026-09-19，Go 1.27.1。WithCancelCause 需 Go 1.20；WithoutCancel、AfterFunc 与到期原因助手需 Go 1.21。`examples/go/contextlife` 验证父子截止时间、首次原因、脱离后的新预算、回调停止与完成、主动取消与到期的区别，以及任务清理确认。
+
+<SourceList />
+<LessonFinish />
+
+</section>

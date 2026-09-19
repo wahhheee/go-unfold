@@ -18,6 +18,7 @@ import { selectLesson } from './concurrency/select';
 import { mutexLesson } from './concurrency/mutex';
 import { atomicLesson } from './concurrency/atomic';
 import { coordinationLesson } from './concurrency/coordination';
+import { contextLesson } from './concurrency/context';
 
 export type LessonDefinition = {
   id: string;
@@ -72,6 +73,7 @@ export const lessons: LessonDefinition[] = [
   mutexLesson,
   atomicLesson,
   coordinationLesson,
+  contextLesson,
 ];
 
 export function findLesson(id: string) {

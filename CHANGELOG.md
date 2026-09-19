@@ -2,6 +2,8 @@
 
 ## 第二章 · 逐节发布
 
+- 2.7：Context 父子预算、首次取消原因、WithoutCancel 与 AfterFunc，区分取消信号和任务收尾。
+
 - 2.6：WaitGroup 登记与完成、Once 错误和 panic 语义、Cond 条件重检，纠正 Go 虚假唤醒误说。
 
 - 2.5：原子操作、CAS 与不可变快照，交互展示浅复制别名及发布后写入，补齐 ABA 和 Value 边界。

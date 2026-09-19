@@ -14,6 +14,7 @@ import { selectQuestions } from './concurrency/select';
 import { mutexQuestions } from './concurrency/mutex';
 import { atomicQuestions } from './concurrency/atomic';
 import { coordinationQuestions } from './concurrency/coordination';
+import { contextQuestions } from './concurrency/context';
 
 export type Question = {
   id: string;
@@ -98,6 +99,7 @@ export const questions: Question[] = [
   ...mutexQuestions,
   ...atomicQuestions,
   ...coordinationQuestions,
+  ...contextQuestions,
 ];
 
 export function getQuestion(id: string): Question {

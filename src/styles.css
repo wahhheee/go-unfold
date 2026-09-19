@@ -3841,3 +3841,34 @@ strong {
     width: 100%;
   }
 }
+.context-branches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  padding: 24px;
+  background: var(--soft);
+}
+.context-branch h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+.context-branch dl {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px 8px;
+  margin: 0;
+  font-size: 12px;
+  min-height: 174px;
+}
+.context-branch dt {
+  color: var(--muted);
+}
+.context-branch dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .context-branches {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
