@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Github,
   Menu,
   Moon,
   NotebookPen,
@@ -320,6 +321,16 @@ export function App() {
               <ShieldCheck size={17} />
               <span>内容标准</span>
             </Link>
+            <a
+              className="icon-button"
+              href="https://github.com/wahhheee/go-unfold"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="GitHub 仓库（新标签页打开）"
+              title="GitHub 仓库（新标签页打开）"
+            >
+              <Github size={18} aria-hidden="true" />
+            </a>
           </div>
         </header>
         {!storageAvailable && (
