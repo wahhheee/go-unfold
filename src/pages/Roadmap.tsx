@@ -105,7 +105,12 @@ export function Roadmap() {
         })}
       </div>
       <div className="roadmap-bottom">
-        <img src="/assets/gopher.png" alt="Go Gopher" width="56" height="78" />
+        <img
+          src={`${import.meta.env.BASE_URL}assets/gopher.png`}
+          alt="Go Gopher"
+          width="56"
+          height="78"
+        />
         <div>
           <strong>学得扎实，走得更远。</strong>
           <p>序章是起点。语言、系统与工程章节将在这个结构上持续生长。</p>

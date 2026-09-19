@@ -102,7 +102,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
       </div>
       <div className="search-footer">
         <span>已发布章节与课程规划</span>
-        <span>GO DEEPER</span>
+        <span>GO UNFOLD</span>
       </div>
     </dialog>
   );

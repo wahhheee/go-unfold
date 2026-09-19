@@ -32,7 +32,9 @@ test('第二章整章发布、搜索、首尾翻页与笔记归属', async ({ pa
   );
   await pagination.getByRole('link', { name: /下一节/ }).click();
   await expect(page).toHaveURL(/concurrency-channels$/);
-  await page.getByRole('link', { name: '记下我的理解', exact: true }).click();
+  const noteLink = page.getByRole('link', { name: '记下我的理解', exact: true });
+  await expect(noteLink).toHaveAttribute('href', '/notes?lesson=concurrency-channels');
+  await noteLink.click();
   await expect(page).toHaveURL(/notes\?lesson=concurrency-channels$/);
   const notes = page.locator('.notes-editor');
   await notes.fill('关闭是发送方协议，退出还要由拥有者确认。');

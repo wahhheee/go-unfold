@@ -27,6 +27,7 @@ const highlighting: RehypeShikiOptions = {
 };
 
 export default defineConfig({
+  build: { license: { fileName: 'THIRD_PARTY_LICENSES.md' } },
   plugins: [
     {
       enforce: 'pre',

@@ -14,14 +14,14 @@ export function Notes() {
   function download() {
     const blob = new Blob(
       [
-        `# Go 深入 · 我的学习笔记\n\n${lessons.map((item) => `## ${item.label}：${item.shortTitle}\n\n${records[item.id]?.notes || '尚未记录笔记。'}\n\n${item.label}状态：${records[item.id]?.completed ? '已完成' : '学习中'}`).join('\n\n---\n\n')}\n`,
+        `# Go 探原 · 我的学习笔记\n\n${lessons.map((item) => `## ${item.label}：${item.shortTitle}\n\n${records[item.id]?.notes || '尚未记录笔记。'}\n\n${item.label}状态：${records[item.id]?.completed ? '已完成' : '学习中'}`).join('\n\n---\n\n')}\n`,
       ],
       { type: 'text/markdown;charset=utf-8' },
     );
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'Go深入-学习笔记.md';
+    link.download = 'Go探原-学习笔记.md';
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setExported(true);

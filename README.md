@@ -1,6 +1,8 @@
-# Go 深入
+# Go 探原 · Go Unfold
 
 一本面向 Go 服务端开发的交互式学习手册。以原理、工程边界和追问链组织内容，避免把过时结论当成标准答案。
+
+[在线学习](https://wahhheee.github.io/go-unfold/) · [GitHub 仓库](https://github.com/wahhheee/go-unfold) · [MIT License](LICENSE)
 
 序章、第一章“Go 语言与运行时”十节、第二章“并发编程”十一节已完成。第一章包含 37 道练习、40 组追问、10 个实验；第二章包含 44 道练习、44 组追问、11 个实验，均附真实 Go 验证并逐节检查后单独提交。其余模块保留为课程规划；详细范围见 [第一章交付记录](docs/GO_CHAPTER.md) 与 [第二章交付记录](docs/CONCURRENCY_CHAPTER.md)。
 
@@ -26,9 +28,16 @@ npx playwright install chromium
 npm run test:e2e       # 桌面、手机、明暗主题与无障碍检查
 npm run build
 npm run preview       # 本地预览生产构建
+npm run build:pages   # 构建 /go-unfold/ 子路径版本
+npm run test:pages    # 无 SPA 回退的静态入口与子路径检查
+npm run icons         # 从 SVG 重建 PNG 图标，需要 Playwright Chromium
 ```
 
-浏览器测试默认使用 5173 端口；本地已运行的开发服务器会被复用，CI 会自动启动服务器。部署时将 `dist/` 作为站点目录，并把不存在的文件请求回退到 `index.html`，以支持 `/learn/preface` 等客户端路由。
+浏览器测试默认使用 5173 端口；本地已运行的开发服务器会被复用，CI 会自动启动服务器。构建后将 `dist/` 作为站点目录：已发布课节、地图、练习与笔记都有真实的 `index.html` 入口，支持静态托管平台直接访问和刷新；`404.html` 为未知地址提供应用内提示。
+
+## GitHub Pages
+
+`main` 分支推送后，GitHub Actions 先执行格式、构建、Go 和浏览器检查，再发布到 `https://wahhheee.github.io/go-unfold/`。PR 仅检查，不发布。工作流不需要仓库内保存访问令牌，部署使用 GitHub 提供的短期权限。配置、子路径与复验方法见 [部署说明](docs/DEPLOYMENT.md)。
 
 ## 已实现
 
@@ -93,6 +102,8 @@ docs(redis): 补充条件删除命令的适用版本
 
 项目当前使用纯前端静态部署，没有账号服务、跨设备同步、真实 Go 沙箱或线上 Redis。浏览器记录可能因清理站点数据丢失，笔记可以导出。
 
-## 素材
+## 许可与素材
+
+原创代码、课程正文、文档和展开书页标志采用 [MIT License](LICENSE)，允许使用、修改和再分发，需保留版权与许可声明。第三方作品保持原许可，不因项目使用 MIT 而重新授权；详见 [第三方声明](public/THIRD_PARTY_NOTICES.md)。生产构建同时发布项目许可、素材声明和依赖许可全文。
 
 Go Gopher 由 Renee French 创作，按 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 使用，来源为 [Go 官方博客](https://go.dev/blog/gopher)。原图位于 `public/assets/gopher.png`，仅做显示尺寸调整。界面图标使用 Lucide；DM Sans 通过 Fontsource 自托管，不依赖外部字体服务。详见 [素材来源](docs/ASSETS.md)。

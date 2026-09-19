@@ -1,14 +1,21 @@
 {
-  "name": "go-deeper",
+  "name": "go-unfold",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wahhheee/go-unfold.git"
+  },
+  "homepage": "https://wahhheee.github.io/go-unfold/",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/prepare-static.mjs",
+    "build:pages": "npm run typecheck && vite build --base=/go-unfold/ && node scripts/prepare-static.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b",
     "test": "vitest run",
@@ -17,6 +24,8 @@
     "test:go:race": "go -C examples/go test -race -shuffle=on -count=1 ./...",
     "test:go:fuzz": "go -C examples/go test ./quality -run '^$' -fuzz '^FuzzRoundTrip$' -fuzztime=5s -parallel=2",
     "test:e2e": "playwright test",
+    "test:pages": "playwright test --config playwright.pages.config.ts",
+    "icons": "node scripts/export-icons.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run test && npm run build"

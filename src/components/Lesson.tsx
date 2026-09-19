@@ -305,7 +305,7 @@ function LessonBody({ lesson }: { lesson: LessonDefinition }) {
         </article>
         <footer className="page-footer">
           <span>
-            Go 深入 <span className="footer-dot">·</span> 保持好奇，认真求证。
+            Go 探原 <span className="footer-dot">·</span> 保持好奇，认真求证。
           </span>
           <span>内容版本 0.1.0</span>
         </footer>

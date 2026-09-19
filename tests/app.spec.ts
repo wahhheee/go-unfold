@@ -6,6 +6,7 @@ test('正文、代码、资源和主题正确渲染', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/learn/preface');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('从「背过」，到真正理解。');
+  await expect(page).toHaveTitle(/Go 探原$/);
   await expect(page.locator('article pre').first()).toBeAttached();
   for (const block of await page.locator('article pre').all()) {
     await expect(block).toHaveClass(/shiki/);
@@ -104,7 +105,7 @@ test('笔记、收藏、完成状态与导出', async ({ page }) => {
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: '导出 Markdown' }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe('Go深入-学习笔记.md');
+  expect(download.suggestedFilename()).toBe('Go探原-学习笔记.md');
   const stream = await download.createReadStream();
   const chunks = [];
   for await (const chunk of stream!) chunks.push(chunk);

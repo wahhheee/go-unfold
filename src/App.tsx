@@ -28,16 +28,15 @@ import { NotFound } from './pages/NotFound';
 
 export function App() {
   const location = useLocation();
+  const pathname = location.pathname.replace(/\/+$/, '') || '/';
   const { records, storageAvailable } = useLearningRecords();
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'light');
   const [search, setSearch] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [pathOpen, setPathOpen] = useState(true);
   const sidebar = useRef<HTMLElement>(null);
-  const isLesson = location.pathname === '/' || location.pathname.startsWith('/learn/');
-  const currentLesson = isLesson
-    ? findLesson(location.pathname.split('/')[2] || 'preface')
-    : undefined;
+  const isLesson = pathname === '/' || pathname.startsWith('/learn/');
+  const currentLesson = isLesson ? findLesson(pathname.split('/')[2] || 'preface') : undefined;
   const completedCount = lessons.filter((lesson) => records[lesson.id]?.completed).length;
   useEffect(() => {
     if (!mobileNav) return;
@@ -85,7 +84,7 @@ export function App() {
       '/practice': '练习回顾',
       '/notes': '我的笔记',
     };
-    document.title = `${names[location.pathname] || currentLesson?.shortTitle || '页面未找到'} · Go 深入`;
+    document.title = `${names[pathname] || currentLesson?.shortTitle || '页面未找到'} · Go 探原`;
     if (!location.hash) window.scrollTo({ top: 0, behavior: 'instant' });
     else {
       // 等待异步加载的课程正文挂载，再定位章节锚点。
@@ -106,7 +105,7 @@ export function App() {
       }, 100);
       return () => window.clearInterval(interval);
     }
-  }, [location.pathname, location.hash, currentLesson]);
+  }, [pathname, location.hash, currentLesson]);
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
@@ -120,11 +119,11 @@ export function App() {
   }, []);
   const pageName = isLesson
     ? currentLesson?.label || '页面未找到'
-    : location.pathname === '/roadmap'
+    : pathname === '/roadmap'
       ? '知识地图'
-      : location.pathname === '/practice'
+      : pathname === '/practice'
         ? '练习回顾'
-        : location.pathname === '/notes'
+        : pathname === '/notes'
           ? '我的笔记'
           : '页面未找到';
   return (
@@ -147,12 +146,16 @@ export function App() {
         aria-modal={mobileNav || undefined}
       >
         <Link className="brand" to="/learn/preface">
-          <span className="brand-mark">
-            g<span>.</span>
-          </span>
+          <img
+            className="brand-mark"
+            src={`${import.meta.env.BASE_URL}favicon.svg`}
+            alt=""
+            width="40"
+            height="40"
+          />
           <span>
-            <strong>Go 深入</strong>
-            <small>服务端开发学习手册</small>
+            <strong>Go 探原</strong>
+            <small>GO UNFOLD · 服务端学习手册</small>
           </span>
         </Link>
         <button
@@ -226,7 +229,7 @@ export function App() {
         <div className="sidebar-bottom">
           <div className="sidebar-growth">
             <img
-              src="/assets/gopher.png"
+              src={`${import.meta.env.BASE_URL}assets/gopher.png`}
               alt="Go Gopher"
               title="Go Gopher：Renee French 绘制，CC BY 4.0"
               width="40"
@@ -265,6 +268,14 @@ export function App() {
             title="Go Gopher 由 Renee French 创作，按 CC BY 4.0 使用"
           >
             Go Gopher · Renee French · CC BY 4.0
+          </a>
+          <a
+            className="asset-credit"
+            href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.md`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            素材与开源许可
           </a>
         </div>
       </aside>
