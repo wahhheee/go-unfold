@@ -12,7 +12,7 @@
 
 ## 编辑现有正文
 
-序章正文位于 `src/content/lessons/preface.mdx`，使用 Markdown 与 React 组件混排。顶层章节有稳定的 `id`，与 `curriculum.ts` 中的目录对应；修改标题时尽量保留 ID，避免破坏收藏和搜索锚点。
+正文位于 `src/content/lessons/`，使用 Markdown 与 React 组件混排。第一章的元信息、题目和追问按节放在 `src/content/go/*.ts`；序章元信息位于 `curriculum.ts`。顶层小节有稳定的 `id`，与该节元信息中的 `sections` 对应；修改标题时尽量保留 ID，避免破坏收藏和搜索锚点。
 
 ```mdx
 <section id="stable-section-id" className="lesson-section">
@@ -38,7 +38,7 @@
 
 ## 新增练习
 
-在 `src/content/questions.ts` 注册题目，ID 要稳定且唯一。每一项必须有解释，包括错误选项。答案采用从 0 开始的下标。
+在各节元信息文件定义题目，并汇入 `src/content/questions.ts`，ID 要稳定且唯一。每一项必须有解释，包括错误选项。答案采用从 0 开始的下标。
 
 ```ts
 {
@@ -66,6 +66,8 @@
 - 测试真正重要的边界，例如到期同刻、所有权变化和旧写入。
 - 需要执行真实 Go 时，必须另外设计服务端沙箱、限时限额与隔离；本项目的 JSON 模拟器不能承担这个职责。
 
+固定的 Go 教学案例放在 `examples/go/`，通过本地 `go test` 验证；不需要为固定测试开放 Web 执行接口。输出、反例、编译失败条件与性能结论应有相应证据，基准必须记录环境和结果的使用方式。
+
 ## 发布新章节
 
 从 `docs/templates/lesson.mdx` 开始编写正文，在 `src/content/lessons.ts` 的 `lessons` 数组中注册一个 `LessonDefinition`，包含以下信息：
@@ -82,4 +84,6 @@
 
 只有完成正文与核验的章节才进入注册表；计划标题留在 `curriculum.ts`，不会生成可点击的空白课程。
 
-每次发布前运行 `npm run format`、`npm run check`、`npm run test:e2e`，并人工检查手机与暗色主题。
+当一个模块的计划范围全部完成并审计后，才将 `curriculum.ts` 中的 `contentComplete` 设为 true。该标记驱动知识地图的整章发布状态，并移除搜索中的重复规划项；它不是读者的学习完成状态。元信息文件引用 `LessonDefinition`、`Question` 等类型时使用 `import type`，避免内容注册形成运行时循环依赖。
+
+每次发布前运行 `npm run format:check`、`npm run check`、`npm run test:e2e`，并人工检查桌面、手机与明暗主题。Go 章节还运行 `npm run test:go`；变更 Go 示例后按范围执行 `test:go:vet`、`test:go:race` 和 `test:go:fuzz`。CI 已接入这些命令。浏览器流程测试运行期间不要修改应用文件，避免热更新干扰正在播放的实验。

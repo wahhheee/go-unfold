@@ -239,3 +239,42 @@ test('往返实验：反例、修复、输入验证与重置', async ({ page }) 
   await expect(lab.getByRole('combobox', { name: '编码实现' })).toHaveValue('broken');
   await expect(lab.getByRole('status')).toContainText('目标性质');
 });
+
+test('整章入口、搜索、翻页与笔记归属一致', async ({ page, isMobile }) => {
+  const goLessons = lessons.filter((lesson) => lesson.moduleId === 'go');
+  await page.goto('/roadmap#go');
+  const module = page.locator('#go');
+  await expect(module).toContainText('本章已发布');
+  await expect(module.getByRole('link')).toHaveCount(goLessons.length);
+  for (const lesson of goLessons)
+    await expect(module.locator(`a[href="${lesson.path}"]`)).toHaveCount(1);
+  await page.getByRole('button', { name: '搜索知识点', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索知识点' });
+  await dialog.getByRole('textbox').fill('Go 语言与运行时');
+  await expect(dialog.locator('.search-result').first()).toBeVisible();
+  await expect(dialog.locator('.search-results')).not.toContainText('规划中');
+  await dialog.getByRole('textbox').fill('synctest');
+  await dialog.getByRole('button', { name: /时间与并发也能被控制/ }).click();
+  await expect(page).toHaveURL(/go-testing#time$/);
+  await expect(page.locator('#time')).toBeInViewport();
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await expect(page.locator('.curriculum-nav .current-lesson')).toHaveCount(goLessons.length);
+  await page.locator('.curriculum-nav a[href="/learn/go-errors"]').click();
+  await page
+    .getByRole('navigation', { name: '章节翻页' })
+    .getByRole('link', { name: /下一节/ })
+    .click();
+  await expect(page).toHaveURL(/go-testing$/);
+  const noteLink = page.getByRole('link', { name: '记下我的理解', exact: true });
+  await expect(noteLink).toHaveAttribute('href', '/notes?lesson=go-testing');
+  await noteLink.click();
+  const notes = page.locator('.notes-editor');
+  await notes.fill('一个反例足以推翻错误的往返性质。');
+  await page.getByRole('combobox', { name: '选择笔记章节' }).selectOption('go-values');
+  await expect(notes).toHaveValue('');
+  await notes.fill('复制指针值仍可能共享对象。');
+  await page.getByRole('combobox', { name: '选择笔记章节' }).selectOption('go-testing');
+  await expect(notes).toHaveValue('一个反例足以推翻错误的往返性质。');
+  await page.reload();
+  await expect(notes).toHaveValue('一个反例足以推翻错误的往返性质。');
+});

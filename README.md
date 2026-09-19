@@ -2,7 +2,7 @@
 
 一本面向 Go 服务端开发的交互式学习手册。以原理、工程边界和追问链组织内容，避免把过时结论当成标准答案。
 
-应用基础设施与序章已完成，第一章“Go 语言与运行时”按节核验发布。其余模块保留为课程规划，尚未发布；详细进度见 [第一章交付记录](docs/GO_CHAPTER.md)。
+序章与第一章“Go 语言与运行时”十节已完成。第一章包含 37 道随堂练习、40 组追问、10 个交互实验及对应的真实 Go 示例，逐节检查后单独提交。其余模块保留为课程规划；详细范围与核验记录见 [第一章交付记录](docs/GO_CHAPTER.md)。
 
 ## 本地运行
 
@@ -18,6 +18,9 @@ npm run dev
 ```bash
 npm run check          # 类型检查、单元测试、生产构建
 npm run test:go        # 真实 Go 示例，另需 Go 1.27+ 工具链
+npm run test:go:vet    # Go 静态检查
+npm run test:go:race   # 竞态检查，打乱测试顺序并重新执行
+npm run test:go:fuzz   # 运行 5 秒往返性质探索
 npm run format:check   # 格式检查
 npx playwright install chromium
 npm run test:e2e       # 桌面、手机、明暗主题与无障碍检查
@@ -31,15 +34,16 @@ npm run preview       # 本地预览生产构建
 
 - 三栏阅读布局、手机抽屉导航、浅色和暗色主题。
 - 九个模块的课程地图，显式区分已发布内容与规划主题。
-- 可检索的序章目录和课程主题，支持关键词与正文锚点跳转。
+- 可检索的已发布章节目录和规划主题，支持关键词与正文锚点跳转。
 - MDX 正文组件，代码围栏在构建期通过 Shiki 高亮，内联代码统一样式。
-- 三道随堂单选题、逐项解释、错题筛选与跨页面答题状态。
+- 共 40 道随堂单选题、逐项解释、错题筛选、按节回顾与跨页面答题状态。
 - Redis 租约实验：参数滑块、开关、可编辑且高亮的 JSON、事件动画、单步、重放、场景预设。
-- 四层面试追问、记忆锚点、参考资料与核验日期。
+- Go 实验覆盖值复制、接口、类型约束、切片、哈希探测、调度、GC、性能画像、defer 与反例发现。
+- 每节连续面试追问、记忆锚点、一手参考资料与固定核验日期。
 - 本地阅读完成状态、收藏、笔记自动保存与 Markdown 导出。
-- 类型检查、模型测试、Playwright 流程测试、axe 无障碍检查与 GitHub Actions 配置。
+- 类型检查、模型和内容注册测试、Go 示例与诊断、Playwright 流程测试、axe 无障碍检查与 GitHub Actions 配置。
 
-序章核对了 Redis 8.4 的 `DELEX ... IFEQ` 等版本变化。实验是浏览器中的确定性离散事件模型，不连接 Redis，不执行任意代码，也不提供远程 Go 执行服务。模型假设在实验面板内明确列出。
+第一章以 Go 1.27.1 / linux / amd64 为实际核验环境，区分语言版本与工具链版本，注明 Swiss Table、Green Tea、泛型方法等变化的适用范围。序章核对了 Redis 8.4 的 `DELEX ... IFEQ`。浏览器实验是受限模型，不提供远程任意代码执行；真实 Go 测试在本地示例模块中运行，模型假设在实验面板内列出。
 
 ## 项目结构
 
@@ -49,18 +53,21 @@ src/
     curriculum.ts            # 模块规划、序章元信息和参考资料
     lessons.ts               # 已发布章节注册表，统一驱动导航与阅读
     questions.ts             # 题目、正确答案、逐项解释与记忆点
-    lessons/preface.mdx       # 序章正文
+    go/                      # 各节元信息、题目与追问
+    lessons/                 # 序章与第一章的 MDX 正文
   components/
     Lesson.tsx               # 阅读框架与 MDX 组件映射
     Quiz.tsx                 # 随堂练习
-    LockLab.tsx               # 实验界面
+    *Lab.tsx                 # 各实验界面
+    ScenarioPlayer.tsx       # 可暂停、单步和重放的教学时间线
     JsonEditor.tsx            # 按需加载的高亮配置编辑器
     Followups.tsx             # 追问链
     CodeBlock.tsx             # 代码复制与展示
-  lib/lock-simulation.ts     # 独立于界面的纯事件模型
+  lib/                      # 独立于界面的模型与边界测试
   pages/                     # 课程地图、练习回顾和笔记
   state/learning.tsx         # 带版本号的浏览器学习记录
-tests/app.spec.ts            # 浏览器集成与无障碍测试
+examples/go/                 # 十组真实 Go 示例、基准和复验记录
+tests/                       # 应用与整章浏览器集成、无障碍测试
 docs/
   AUTHORING.md               # 内容编写与扩展指南
   CONTENT_POLICY.md          # 核验与内容更新规范

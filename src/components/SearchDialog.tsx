@@ -10,12 +10,12 @@ const searchItems = [
       title: section.title,
       context: `${lesson.label} · 已发布`,
       url: `${lesson.path}#${section.id}`,
-      text: `${section.title} ${lesson.shortTitle} ${lesson.label} ${section.keywords || ''}`,
+      text: `${section.title} ${lesson.shortTitle} ${lesson.label} ${modules.find((module) => module.id === lesson.moduleId)?.title || ''} ${section.keywords || ''}`,
       available: true,
     })),
   ),
   ...modules
-    .filter((module) => module.id !== 'preface')
+    .filter((module) => !module.contentComplete)
     .flatMap((module) =>
       module.topics.map((topic) => ({
         title: topic,
@@ -101,7 +101,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
         )}
       </div>
       <div className="search-footer">
-        <span>搜索当前序章与完整课程规划</span>
+        <span>已发布章节与课程规划</span>
         <span>GO DEEPER</span>
       </div>
     </dialog>

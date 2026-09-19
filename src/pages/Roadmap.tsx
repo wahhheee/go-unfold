@@ -72,7 +72,13 @@ export function Roadmap() {
                 <div className="module-title">
                   <h2>{module.title}</h2>
                   <span className={`tag ${published ? '' : 'neutral'}`}>
-                    {published ? (completed ? '已发布篇目已完成' : '有已发布章节') : '规划中'}
+                    {completed
+                      ? '已发布篇目已完成'
+                      : module.contentComplete
+                        ? '本章已发布'
+                        : published
+                          ? '部分已发布'
+                          : '规划中'}
                   </span>
                 </div>
                 <p>{module.description}</p>

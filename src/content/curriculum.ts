@@ -4,12 +4,14 @@ export type Module = {
   title: string;
   description: string;
   topics: string[];
+  contentComplete?: boolean;
   stage: '起点' | '语言基础' | '系统原理' | '工程实践';
 };
 
 export const modules: Module[] = [
   {
     id: 'preface',
+    contentComplete: true,
     number: '00',
     title: '序章',
     description: '建立理解、验证、表达的学习闭环。',
@@ -18,6 +20,7 @@ export const modules: Module[] = [
   },
   {
     id: 'go',
+    contentComplete: true,
     number: '01',
     title: 'Go 语言与运行时',
     description: '从语言语义出发，理解代码为什么这样运行。',
