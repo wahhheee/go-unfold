@@ -4,6 +4,7 @@ import type { MDXProps } from 'mdx/types';
 import { preface, sources } from './curriculum';
 import { typesLesson } from './go/types';
 import { interfacesLesson } from './go/interfaces';
+import { genericsLesson } from './go/generics';
 
 export type LessonDefinition = {
   id: string;
@@ -44,6 +45,7 @@ export const lessons: LessonDefinition[] = [
   },
   typesLesson,
   interfacesLesson,
+  genericsLesson,
 ];
 
 export function findLesson(id: string) {

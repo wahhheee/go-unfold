@@ -30,6 +30,7 @@ import { LockLab } from './LockLab';
 import { Quiz } from './Quiz';
 import { ValueCopyLab } from './ValueCopyLab';
 import { InterfaceLab } from './InterfaceLab';
+import { ConstraintLab } from './ConstraintLab';
 import type { ComponentPropsWithoutRef } from 'react';
 
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
@@ -127,6 +128,7 @@ const mdxComponents = {
   Quiz,
   ValueCopyLab,
   InterfaceLab,
+  ConstraintLab,
   LockLab,
   Followups,
   SourceList,

@@ -81,3 +81,23 @@ test('接口实验：typed nil 与不可比较值', async ({ page }) => {
   await lab.getByRole('button', { name: '验证判断' }).click();
   await expect(lab.locator('.comparison-results strong')).toHaveText(['true', 'true']);
 });
+
+test('泛型实验：类型集与 comparable 例外', async ({ page }) => {
+  await page.goto('/learn/go-generics#lab');
+  const lab = page.getByRole('region', { name: '类型约束实验' });
+  await lab.getByRole('button', { name: '检查类型实参' }).click();
+  await expect(
+    lab.locator('.constraint-row').filter({ has: page.getByText('UserID', { exact: true }) }),
+  ).toContainText('不满足');
+  await lab.getByRole('combobox').selectOption('underlying');
+  await lab.getByRole('button', { name: '检查类型实参' }).click();
+  await expect(
+    lab.locator('.constraint-row').filter({ has: page.getByText('UserID', { exact: true }) }),
+  ).not.toContainText('不满足');
+  await lab.getByRole('combobox').selectOption('comparable');
+  await lab.getByRole('button', { name: '检查类型实参' }).click();
+  await expect(lab.getByRole('status')).toContainText('Go 1.20');
+  await expect(
+    lab.locator('.constraint-row').filter({ has: page.getByText('[]int', { exact: true }) }),
+  ).toContainText('不满足');
+});

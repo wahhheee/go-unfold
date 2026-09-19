@@ -1,0 +1,170 @@
+import { genericFollowups } from '../go/generics';
+
+<section id="purpose" className="lesson-section first-section">
+
+<div className="section-kicker">01 / 保留输入与输出的类型关系</div>
+
+## 去重算法相同，不必把元素都变成 any。
+
+订单 ID 和标签都需要去重。复制两份算法容易修一处漏一处；改成 `[]any` 则丢失元素类型，而且 `[]int` 不能直接赋给 `[]any`。泛型让算法复用，同时保留“传入哪种元素，就返回哪种元素”的关系。
+
+```go
+func Unique[T comparable](in []T) []T {
+    seen := make(map[T]struct{}, len(in))
+    out := make([]T, 0, len(in))
+    for _, v := range in {
+        if _, ok := seen[v]; !ok {
+            seen[v] = struct{}{}
+            out = append(out, v)
+        }
+    }
+    return out
+}
+
+ids := Unique([]int{3, 1, 3}) // 推断 T 为 int，结果 [3 1]
+tags := Unique[string]([]string{"go", "db", "go"})
+```
+
+这是保持首次出现顺序的实现：顺序来自遍历输入，不来自遍历 map。使用 map 要求键可比较，因此 `T any` 不足以通过检查。当前函数对 nil 输入返回非 nil 的空切片，若 API 要保留 nil，需要明确加入分支。这也是泛型不会替你决定的行为契约。
+
+`Unique[int]` 是实例化后的函数，可以赋给函数变量。类型推断根据实参、约束和适用的赋值上下文求解，不是“看见期望结果就随意猜类型”。例如没有实参可提供线索的 `Zero[T any]() T`，调用通常写作 `Zero[int]()`。泛型类型的使用也需要类型实参，如 `Box[int]{}`。
+
+</section>
+
+<section id="sets" className="lesson-section">
+
+<div className="section-kicker">02 / 类型集决定函数体能做什么</div>
+
+## 竖线求并集，多行元素求交集。
+
+`interface` 既用于表达行为，也可以描述类型集。约束把允许的类型实参圈在一个集合里，函数体只能使用对集合中所有类型都合法的操作。
+
+```go
+type UserID int
+type Exact interface { int }
+type IntLike interface { ~int }
+type Addable interface { ~int | ~string }
+
+func Twice[T Addable](x T) T { return x + x }
+```
+
+`int` 是精确类型项；`~int` 表示底层类型为 int 的所有类型，所以包含 `UserID`；`|` 合并两组类型。`Twice(3)` 得到 6，`Twice("go")` 得到 "gogo"。同一个运算符合法，不代表业务语义相同。
+
+如果一个约束同时写 `~int` 和 `String() string`，两项取交集：类型既要以 int 为底层类型，又要有对应方法。预声明的 int 没有这个方法，不满足；某个定义类型可以满足。多个条件还可能形成空集，使泛型函数无法被正常实例化。
+
+`~` 不是任意前缀：`~UserID` 不合法，因为 UserID 的底层类型不是它自身。联合项也不能任意重叠，例如 `~int | UserID` 的两项重叠。含类型项或嵌入 `comparable` 的非基本接口只能用作约束，不能声明 `var x IntLike` 来盛放运行时值。
+
+<Quiz id="go-generic-tilde" />
+
+</section>
+
+<section id="lab" className="lesson-section">
+
+<div className="section-kicker">03 / 把“实现”与“满足”分开</div>
+
+## comparable 有一个需要记住的版本例外。
+
+<ConstraintLab />
+
+普通接口 `any` 在静态类型上可比较，但不是严格可比较类型：它可能装入不能比较的切片。`comparable` 的类型集描述严格可比较的非接口类型；**从 Go 1.20 开始，约束满足规则额外允许某些可比较类型实参，包括这里的 any。** 因此“满足约束”和“实现该接口”不能无条件等同。
+
+```go
+func Equal[T comparable](a, b T) bool { return a == b }
+
+fmt.Println(Equal[any](1, 1)) // true
+// Equal[any]([]int{1}, []int{1}) // 可编译，运行时 panic
+```
+
+同理，`Unique[any]` 接受切片元素时会在 map 键操作上出问题。不要因为函数名叫“通用去重”，就把所有值都宣称为可用输入。若需要深度相等或自定义等价关系，应单独设计比较函数与算法；还要说明复杂度和等价关系是否自反、对称、传递。
+
+<Quiz id="go-generic-comparable" />
+
+</section>
+
+<section id="methods" className="lesson-section">
+
+<div className="section-kicker">04 / 别把旧版本限制记成永久结论</div>
+
+## Go 1.27 允许非接口方法声明自己的类型参数。
+
+泛型类型的方法可以使用接收者声明的类型参数，这与方法自己再引入一个参数是两件事：
+
+```go
+type Box[T any] struct { Value T }
+
+func (b Box[T]) Get() T { return b.Value }
+
+// 从 Go 1.27 开始，非接口方法可以再声明 U
+func (b Box[T]) Map[U any](f func(T) U) U {
+    return f(b.Value)
+}
+
+n := Box[string]{Value: "go"}.Map(func(s string) int { return len(s) })
+fmt.Println(n) // 2
+```
+
+`Get` 使用泛型接收者的参数；`Map` 额外声明方法自己的 `U`。需要包的语言版本支持 Go 1.27；仅安装新工具链而保持旧模块语言版本，不能忽略版本检查。面试回答必须先确认讨论的版本。
+
+接口方法仍不能声明自己的类型参数。泛型方法也不会自动通过实例化来满足某个普通接口方法签名。另一方面，泛型接口本身可以写成 `type Getter[T any] interface { Get() T }`，实例化为 `Getter[int]` 后，其方法签名是普通的 `Get() int`。
+
+Go 1.24 还支持泛型类型别名，例如 `type Set[K comparable] = map[K]struct{}`。别名不建立新的类型身份；它解决命名和迁移问题，不会给 map 增加并发安全性。
+
+<Quiz id="go-generic-method" />
+
+</section>
+
+<section id="design" className="lesson-section">
+
+<div className="section-kicker">05 / 用类型关系表达真实需求</div>
+
+## 泛型、接口与普通函数，各有合适的位置。
+
+若输出应保留输入切片的定义类型，可以同时声明切片类型和元素类型：
+
+```go
+func Copy[S ~[]E, E any](in S) S {
+    if in == nil { return nil }
+    out := make(S, len(in))
+    copy(out, in)
+    return out
+}
+
+type IDs []int
+copied := Copy(IDs{1, 2}) // 返回类型仍然是 IDs
+```
+
+这里 `S` 保留切片类型身份，`E` 表达元素。复制仍然只是元素的值复制；若元素是指针，底层对象仍然共享。类型安全不会自动变成深拷贝。
+
+当算法依赖相同结构操作、且需要保持多个参数与结果之间的类型关系时，泛型常有价值。当订单服务只需要调用 `Load(ctx)` 的行为时，小接口通常更直接。只有一种具体数据形态、很短的一次性操作，普通函数也足够。抽象不应让调用者为了一个简单动作先读一页约束。
+
+</section>
+
+<section id="followups" className="lesson-section">
+
+<div className="section-kicker">06 / 从能编译追到运行时和设计</div>
+
+## 一份约束，不能替代全部契约。
+
+<Followups items={genericFollowups} />
+
+面试表达可以沿这条线组织：先说明要保留的类型关系，再说明允许的类型集和操作，接着指出接口实参的动态风险，最后说明版本与性能测量条件。不要只说“泛型避免反射，所以一定快”。
+
+</section>
+
+<section id="sources" className="lesson-section">
+
+<div className="section-kicker">07 / 给版本变化留一个位置</div>
+
+## 约束决定操作，版本决定边界。
+
+<div className="takeaway-strip">
+  <span>记忆锚点</span>
+  <strong>类型集圈范围 · ~ 看底层 · 接口比较仍有风险 · 1.27 有泛型方法</strong>
+</div>
+
+核验日期：2026-09-19。规范与执行基线 Go 1.27；泛型基础 1.18、comparable 例外 1.20、泛型别名 1.24、方法独立类型参数 1.27。`examples/go/generics` 包含真实输出、28 组类型检查及旧语言版本拒绝泛型方法的测试。
+
+<SourceList />
+<LessonFinish />
+
+</section>

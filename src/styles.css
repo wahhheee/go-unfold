@@ -1084,6 +1084,33 @@ strong {
 .shiki {
   background: var(--code-bg) !important;
 }
+.constraint-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 16px 20px;
+  gap: 0 24px;
+}
+.constraint-row {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.constraint-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--secondary);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .constraint-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 [data-theme='dark'] .shiki,
 [data-theme='dark'] .shiki span {
   color: var(--shiki-dark);
