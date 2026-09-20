@@ -1,0 +1,110 @@
+import { tcpFollowups } from '../network/tcp';
+
+<section id="stream" className="lesson-section">
+<div className="section-kicker">01 / 本地调试正常，上线突然读不全</div>
+
+## 不要把一次函数调用当成一个协议边界
+
+客户端连续发送两条消息，服务端却有时一次读完，有时分三次才读完。很多人把它叫作“粘包、拆包问题”，然后试着加 Sleep。这样只是改变时机，没有解决协议缺少边界的问题。
+
+TCP 提供可靠、有序的**字节流**。它用序列号与重传处理丢失、乱序等传输问题；连接仍可能超时或复位，不保证一定成功。应用两次 `Write` 送入的字节，在对端可能由一次或多次 `Read` 取出。TCP 分段、网卡卸载、接收缓冲与应用读取大小，都不能作为业务消息分界。
+
+UDP 保留数据报边界，但不因此保证送达、有序或不重复；接收缓冲太小还要考虑截断。选择它不能免去应用协议设计。
+
+<Quiz id="net-tcp-boundary" />
+
+最常见的三种定界方式是固定长度、分隔符和长度前缀。固定长度简单但浪费空间；分隔符需要处理转义与最大长度；长度前缀适合二进制载荷，却必须先校验长度再分配内存。格式本身不会替你处理恶意大帧。
+
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 故意打碎每条消息</div>
+
+## 读取方式在变，正确消息应当不变
+
+这里发送 `长度 3 + CAT` 和 `长度 2 + OK`。先用每次 2 字节读到底，再分别试 1 字节和 7 字节。观察暂存区什么时候可以交付一帧；再切换到错误方案，对比输出。
+
+<StreamLab />
+
+最后勾选“截断最后一个字节”。第一条消息仍然完整，第二条只能报截断。一次读取没拿够时先等后续字节，读到 EOF 后仍没拿够则应报错；这两个状态不能混为一谈。
+
+<Quiz id="net-tcp-truncated" />
+</section>
+
+<section id="decoder" className="lesson-section">
+<div className="section-kicker">03 / 把边界变成可执行契约</div>
+
+## 先读头，检查上限，再读体
+
+下面采用四字节大端长度头，与实验的一字节头不同，但规则相同。示例将一帧限制在 1 MiB，零长度帧合法。真实协议还要明确超时、版本和错误后的会话处理。
+
+```go
+func ReadFrame(r io.Reader) ([]byte, error) {
+    var header [4]byte
+    if _, err := io.ReadFull(r, header[:]); err != nil {
+        return nil, err
+    }
+    n := binary.BigEndian.Uint32(header[:])
+    if n > 1<<20 {
+        return nil, fmt.Errorf("frame too large: %d", n)
+    }
+    body := make([]byte, int(n))
+    if _, err := io.ReadFull(r, body); err != nil {
+        return nil, err
+    }
+    return body, nil
+}
+```
+
+`ReadFull` 把多次短读组织成“收齐指定字节”。若一个字节都没读到就结束，返回 EOF；只得到一部分则返回 ErrUnexpectedEOF。直接使用 `Read` 时，还要先处理 `n > 0` 的数据，再处理同次返回的错误。不要假定 `err != nil` 就一定没有数据。
+
+边界合法仍可能迟迟收不齐。对 `net.Conn` 设置读写期限，配合连接拥有者的退出策略；`SetDeadline` 是绝对时间，持续作用于后续操作，清除或刷新需要显式调用。只有长度上限没有时间上限，也会被慢速发送方占住资源。
+
+`examples/go/stream/` 用不同 Reader 切分验证解码结果、超大长度和截断，再通过真实回环 TCP 验证半关闭后仍能接收响应。这些测试验证接口语义，不声称一次抓包的边界可以复现所有网络。
+
+</section>
+
+<section id="lifecycle" className="lesson-section">
+<div className="section-kicker">04 / 收到了什么，又在等谁</div>
+
+## 建立与关闭，都有两个方向
+
+常见握手是客户端 SYN、服务端 SYN+ACK、客户端 ACK：双方分别告知初始序列号并确认对方的序列空间。SYN 本身占一个序列号，握手不代表应用认证或业务完成。
+
+关闭时，FIN 说明“我这个方向没有后续数据”，已有数据仍应先交付。调用 `CloseWrite` 可结束发送方向，接收方向仍可继续。RST 则表示复位，不能当成一段完整响应的正常终止标志。
+
+<Quiz id="net-tcp-half" />
+
+| 常见状态    | 在等待什么                           | 排查方向                         |
+| ----------- | ------------------------------------ | -------------------------------- |
+| SYN_SENT    | 建立连接的响应                       | 路由、目标端口、丢包、接入负载   |
+| ESTABLISHED | 连接已建好，业务可继续               | 不等于应用有进展                 |
+| CLOSE_WAIT  | 收到对端 FIN，本地应用尚未关闭该方向 | 生命周期、阻塞工作、连接泄漏     |
+| FIN_WAIT_2  | 本端 FIN 已获确认，等待对端 FIN      | 对端关闭流程与时限               |
+| TIME_WAIT   | 为旧报文与最后确认保留保护期         | 主动关闭速率、端口容量、复用策略 |
+
+TIME_WAIT 不是忘记关闭文件描述符的同义词。规范描述 2×MSL 的等待与允许的例外；具体系统取值和复用政策要按实现核对，不要背一个秒数用于所有平台。也不要把 `tcp_fin_timeout` 当成通用 TIME_WAIT 旋钮。
+
+<Quiz id="net-tcp-state" />
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 不停在包数和状态名</div>
+
+## 每个确认，都只确认它所在的一层
+
+<Followups items={tcpFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 记住三个边界</div>
+
+## 字节边界、方向边界、业务边界
+
+“TCP 保证传输的有序字节流，不保留消息边界。应用要有定界、长度上限和等待期限。FIN/EOF 只结束一个方向，ACK 不证明业务成功。排查连接状态，要结合哪一方拥有关闭责任。”
+
+核验于 **2026-09-20**；协议依据 RFC 9293，Go 样本为 **Go 1.27.1 / linux / amd64**。Linux 参数不能直接套在其他操作系统上；实验没有实现 TCP 协议栈。
+
+<SourceList />
+<LessonFinish />
+</section>

@@ -20,3 +20,25 @@ test('DNS：旧连接、缓存到期与新地址', async ({ page }, testInfo) =>
   await expect(lab.getByTestId('dns-queries')).toHaveText('0');
   await expect(lab.getByRole('button', { name: '关闭空闲连接' })).toBeDisabled();
 });
+
+test('TCP：短读、消息定界与截断', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-tcp#lab');
+  const lab = page.getByRole('region', { name: 'TCP 字节流与消息定界实验' });
+  for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '读取一次' }).click();
+  await expect(lab.locator('.network-cells')).toContainText('CAT、OK');
+  await lab.screenshot({ path: testInfo.outputPath('tcp-light.png') });
+  await lab.getByRole('slider').fill('7');
+  await lab.getByRole('checkbox').check();
+  await lab.getByRole('button', { name: '读取一次' }).click();
+  await lab.getByRole('button', { name: '读取一次' }).click();
+  await expect(lab.getByRole('status')).toContainText('截断');
+  await expect(lab.getByRole('button', { name: '读取一次' })).toBeDisabled();
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('tcp-dark.png') });
+  await lab.getByRole('checkbox').uncheck();
+  await lab.getByRole('combobox').selectOption('read');
+  await lab.getByRole('button', { name: '读取一次' }).click();
+  await expect(lab.locator('.network-cells')).toContainText('?CAT?OK');
+  await lab.getByRole('button', { name: '重置字节流' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('0 / 7 字节');
+});

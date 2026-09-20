@@ -26,6 +26,8 @@ import { diagnosticsLesson } from './concurrency/diagnostics';
 
 import { dnsLesson } from './network/dns';
 
+import { tcpLesson } from './network/tcp';
+
 export type LessonDefinition = {
   id: string;
   moduleId: string;
@@ -85,6 +87,7 @@ export const lessons: LessonDefinition[] = [
   rateLesson,
   diagnosticsLesson,
   dnsLesson,
+  tcpLesson,
 ];
 
 export function findLesson(id: string) {

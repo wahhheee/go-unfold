@@ -78,6 +78,10 @@ const InterleavingLab = lazy(() =>
 
 const DnsLab = lazy(() => import('./DnsLab').then((module) => ({ default: module.DnsLab })));
 
+const StreamLab = lazy(() =>
+  import('./StreamLab').then((module) => ({ default: module.StreamLab })),
+);
+
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label="知识对照表">
@@ -170,6 +174,7 @@ function LessonFinish() {
 
 const mdxComponents = {
   DnsLab,
+  StreamLab,
   Callout,
   Quiz,
   ValueCopyLab,

@@ -22,6 +22,8 @@ import { diagnosticsQuestions } from './concurrency/diagnostics';
 
 import { dnsQuestions } from './network/dns';
 
+import { tcpQuestions } from './network/tcp';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -35,6 +37,7 @@ export type Question = {
 
 export const questions: Question[] = [
   ...dnsQuestions,
+  ...tcpQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',
