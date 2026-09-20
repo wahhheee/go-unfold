@@ -1,0 +1,101 @@
+import { netpollFollowups } from '../network/netpoll';
+
+<section id="waiting" className="lesson-section">
+<div className="section-kicker">01 / 等待也有不同层次</div>
+
+## 连接在等，不代表线程必须陪着等
+
+聊天服务有许多在线连接，大多数时候都没有新消息。如果每条空闲连接占住一个操作系统线程，线程栈和调度成本很快就会变成负担。我们需要集中观察“谁现在有事可做”，再安排执行。
+
+阻塞调用暂不返回；非阻塞调用在暂时无法推进时返回 EAGAIN 一类结果。**I/O 多路复用**允许一个等待者观察多个描述符，拿到就绪信息后再执行读写。这里的“复用”指等待机制，与 HTTP 多个请求共享连接不是同一层。
+
+就绪通知也不等于完成通知：epoll 告诉你可以尝试 I/O；另一些接口围绕提交操作与收取完成结果组织工作。用“异步”一个词概括所有机制，容易把数据何时读取、谁保存缓冲区这些关键责任漏掉。
+
+<Quiz id="net-poll-ready" />
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 留下两字节，观察差别</div>
+
+## LT 看当前状态，ET 更需要记住未完成的工作
+
+Linux epoll 维护关注的描述符和就绪事件。默认的水平触发 LT 在对象持续就绪时可继续通知；边缘触发 ET 围绕变化产生通知，不能依靠“上次没处理完”获得下一次提醒。通知可能合并，绝不是每个网络包对应一次回调。
+
+选择 ET，依次点击“到达四字节 → 取一次就绪事件 → 只读两字节 → 取一次就绪事件”。观察缓冲里明明还有两个字节，却没有新事件。再直接读到 EAGAIN，确认那两个字节仍能取出。切换 LT，重复相同步骤作对照。
+
+<ReadinessLab />
+
+<Quiz id="net-poll-et" />
+
+面向 ET 的常见实现使用非阻塞描述符，在重新等待之前持续处理到 EAGAIN，或保留自己的待处理队列。EOF 和错误则走结束路径。这样不会因为一次阻塞 Read 让整个事件循环停住，也不会遗忘剩余数据。
+
+再试“到达四字节 → 对端关闭写方向 → 只读两字节”。关闭不会抹掉已经收到的字节；要读完它们才得到 EOF。第二节的半关闭在这里重新出现：事件标志只是线索，必须用实际读取结果维护协议状态。
+
+</section>
+
+<section id="netpoll" className="lesson-section">
+<div className="section-kicker">03 / 把复杂的等待藏在同步 API 后面</div>
+
+## Go 的网络 Read 是一条可重试的路径
+
+在本节核验的 Linux / Go 1.27.1 中，普通 TCP 网络描述符会参与运行时的轮询机制。简化路径是：先尝试非阻塞读取；有数据便返回；遇到 EAGAIN，安排等待并挂起当前 goroutine；就绪后让它重新成为可运行状态，再尝试读取。被唤醒也不等于立刻获得 CPU。
+
+运行时还必须处理事件先到、等待后注册、连接关闭和 deadline 等竞争，避免丢失唤醒。因此“自己照着几个箭头写一遍”不等于实现了 Go 的 netpoll。
+
+<Quiz id="net-poll-go" />
+
+```go
+// 这是普通 Go 网络代码，不需要用户手写 epoll。
+if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+    return err
+}
+n, err := conn.Read(buf)
+if n > 0 {
+    consume(buf[:n]) // 先处理实际返回的数据
+}
+if err != nil {
+    return err      // 再区分 EOF、超时和其他错误
+}
+```
+
+一次成功的 Go Read **不要求把内核缓冲全部读空**。下一次调用仍会先尝试读取，不会不加判断地等待新的 ET 通知。应用负责协议定界、并发所有权与业务限额，运行时负责这条网络等待路径。
+
+这个解释不能扩展成“所有 Go I/O 都不阻塞线程”。普通磁盘文件、cgo 与某些系统调用有不同的路径，操作系统后端也各不相同。先确认对象是否可轮询，再讨论等待成本。
+
+</section>
+
+<section id="capacity" className="lesson-section">
+<div className="section-kicker">04 / 没有忙等，仍然有成本</div>
+
+## 十万连接不是免费的十万个状态
+
+空闲连接仍需要描述符、内核缓冲、应用状态、计时器，可能还有 goroutine 栈。可运行的业务仍会消耗 CPU，繁忙连接仍会争抢下游。第二章的连接额度、任务队列、超时、取消和背压在这里都有具体落点。
+
+<Quiz id="net-poll-capacity" />
+
+观察性能时，分别看连接数、等待的 G、可运行的 G、线程数、CPU、网络缓冲与请求队列。大量等待 I/O 的 goroutine 不自动证明泄漏；如果请求已经结束，却没有任何事件能叫醒它，才需要追踪遗失的取消或关闭路径。
+
+固定样本 `examples/go/readiness/` 在 Linux 创建非阻塞管道，真实比较 LT 与 ET：部分读取后再次取事件、排空到 EAGAIN、重新写入产生事件。另一测试验证关闭真实 TCP 连接能让读取返回，并显式等待读取 goroutine 退出。管道用于稳定展示 epoll 语义，不冒充真实网络拥塞或完整运行时调度。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 提醒到了以后，谁负责收尾</div>
+
+## 公平性与生命周期仍需要设计
+
+<Followups items={netpollFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 一分钟表达</div>
+
+## 就绪、读取、调度和业务完成各算一件事
+
+“epoll 集中报告 I/O 就绪；ET 要避免遗忘未处理完的数据。Go 用非阻塞尝试、挂起 G 与再次调度提供同步的网络 API。线程等待成本下降后，连接资源、业务容量与退出责任仍然存在。”
+
+核验于 **2026-09-20**，实现前提为 **Linux / Go 1.27.1**。运行时内部路径随版本变化；代码使用公开 net.Conn 契约。浏览器只推进确定性的教学状态。
+
+<SourceList />
+<LessonFinish />
+</section>

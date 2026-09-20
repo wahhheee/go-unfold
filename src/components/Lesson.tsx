@@ -97,6 +97,9 @@ const TlsLab = lazy(() => import('./TlsLab').then((module) => ({ default: module
 const MemoryMapLab = lazy(() =>
   import('./MemoryMapLab').then((m) => ({ default: m.MemoryMapLab })),
 );
+const ReadinessLab = lazy(() =>
+  import('./ReadinessLab').then((m) => ({ default: m.ReadinessLab })),
+);
 const DescriptorLab = lazy(() =>
   import('./DescriptorLab').then((module) => ({ default: module.DescriptorLab })),
 );
@@ -200,6 +203,7 @@ const mdxComponents = {
   TlsLab,
   DescriptorLab,
   MemoryMapLab,
+  ReadinessLab,
   Callout,
   Quiz,
   ValueCopyLab,

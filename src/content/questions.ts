@@ -36,6 +36,8 @@ import { processQuestions } from './network/process';
 
 import { networkMemoryQuestions } from './network/memory';
 
+import { netpollQuestions } from './network/netpoll';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -56,6 +58,7 @@ export const questions: Question[] = [
   ...tlsQuestions,
   ...processQuestions,
   ...networkMemoryQuestions,
+  ...netpollQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',

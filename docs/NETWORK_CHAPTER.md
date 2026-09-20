@@ -14,7 +14,7 @@
 | 3.6  | network-tls       | 加密后就可信了吗？TLS 1.3、证书、ALPN、恢复与 0-RTT；身份校验握手实验   | 已发布：81 项单测、128 项浏览器检查及 Go / vet / race 通过 |
 | 3.7  | network-process   | 进程到底拥有什么？线程、系统调用、文件描述符与共享偏移；描述符引用实验  | 已发布：83 项单测、132 项浏览器检查及 Go / vet / race 通过 |
 | 3.8  | network-memory    | 分配内存就占满物理页吗？地址空间、缺页、COW、RSS；页映射实验            | 已发布：85 项单测、136 项浏览器检查及 Go / vet / race 通过 |
-| 3.9  | network-netpoll   | 一个线程如何等许多连接？阻塞、就绪、epoll 与 Go netpoll；就绪与排空实验 | 规划                                                       |
+| 3.9  | network-netpoll   | 一个线程如何等许多连接？阻塞、就绪、epoll 与 Go netpoll；就绪与排空实验 | 已发布：87 项单测、140 项浏览器检查及 Go / vet / race 通过 |
 | 3.10 | network-diagnosis | 慢请求卡在哪里？分段观测、超时、重试与退出；请求预算与结果未知实验      | 规划                                                       |
 
 ## 每节质量门槛

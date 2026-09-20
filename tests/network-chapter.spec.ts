@@ -193,3 +193,44 @@ test('虚拟内存：共享驻留、写时复制与释放', async ({ page }, tes
   await lab.getByRole('button', { name: '重置虚拟内存' }).click();
   await expect(lab.locator('.live-label')).toHaveText('模型缺页 0 次');
 });
+
+test('就绪：ET 残留数据、LT 重复通知与 EOF', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-netpoll#lab');
+  const lab = page.getByRole('region', { name: '就绪通知与缓冲排空实验' });
+  await lab.getByRole('button', { name: '到达四字节' }).click();
+  await lab.getByRole('button', { name: '取一次就绪事件' }).click();
+  await lab.getByRole('button', { name: '只读两字节' }).click();
+  await lab.getByRole('button', { name: '取一次就绪事件' }).click();
+  await expect(lab.getByRole('status')).toContainText('缓冲仍有字节');
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '2 字节',
+    '本次没有新事件',
+    '2 字节',
+  ]);
+  await lab.screenshot({
+    path: testInfo.outputPath('netpoll-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
+  await lab.getByRole('button', { name: '读到 EAGAIN 或 EOF' }).click();
+  await expect(lab.getByRole('status')).toContainText('EAGAIN');
+  await lab.getByRole('combobox').selectOption('lt');
+  await lab.getByRole('button', { name: '到达四字节' }).click();
+  await lab.getByRole('button', { name: '取一次就绪事件' }).click();
+  await lab.getByRole('button', { name: '只读两字节' }).click();
+  await lab.getByRole('button', { name: '取一次就绪事件' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '2 字节',
+    '收到就绪事件',
+    '2 字节',
+  ]);
+  await lab.getByRole('button', { name: '对端关闭写方向' }).click();
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({
+    path: testInfo.outputPath('netpoll-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
+  await lab.getByRole('button', { name: '读到 EAGAIN 或 EOF' }).click();
+  await expect(lab.getByRole('status')).toContainText('EOF');
+  await lab.getByRole('button', { name: '重置就绪实验' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText(['0 字节', '尚未取事件', '0 字节']);
+});
