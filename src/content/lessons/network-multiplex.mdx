@@ -1,0 +1,98 @@
+import { multiplexFollowups } from '../network/multiplex';
+
+<section id="streams" className="lesson-section">
+<div className="section-kicker">01 / 三个资源，谁应该等谁</div>
+
+## 一个慢响应，不该规定所有响应的次序
+
+页面同时加载用户信息 A、小图 B 和配置 C。A 很慢，但 B 和 C 已经算好。HTTP/1.1 同一连接即使用请求流水线，响应也要按请求顺序对应；因此小响应可能排在大响应后面。实际客户端常用多条连接分担，这又增加连接成本。
+
+HTTP/2 给每次交换安排流，用带类型与流标识的帧交错发送。HEADERS 承载头部，DATA 承载内容，另有 SETTINGS、WINDOW_UPDATE 等控制帧。B 的响应可以在 A 结束前推进；这不改变 GET、状态码等 HTTP 语义。
+
+<Quiz id="net-mux-h1" />
+
+HPACK 压缩重复的字段，减少头部开销；它不压缩所有业务响应体，也不是加密。流量控制则同时考虑流与连接维度，防止多路复用把接收端压垮。不要把“只剩一条连接”理解成“资源成本不再随请求增长”。
+
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 同样丢一个包，等待关系不同</div>
+
+## 到达了，不等于能交付
+
+保持第一包丢失，分别在 HTTP/2 和 HTTP/3 下推进六次。此时 B、C 的数据都已到达，但两个协议的可交付数量不同。最后补齐缺口，再比较。
+
+<MultiplexLab />
+
+HTTP/2 的帧仍放在同一条 TCP 字节流里。TCP 必须先补齐前面的字节，才能把后面的字节交上去，哪怕后面属于另一个 HTTP 流。这叫传输层的队头阻塞。
+
+<Quiz id="net-mux-h2" />
+
+HTTP/3 映射到 QUIC 流，各流分别有序。一条流的缺口不要求无关流等待相同字节。但勾选 QPACK 依赖后，你会看到另一种等待：数据传输本身可独立推进，应用解析响应头却还缺动态表条目。
+
+<Quiz id="net-mux-h3" />
+</section>
+
+<section id="quic" className="lesson-section">
+<div className="section-kicker">03 / 减少一种依赖，不是消灭所有等待</div>
+
+## QUIC 在 UDP 上重新提供所需的传输能力
+
+QUIC 提供可靠流、连接与流级控制、拥塞控制，并集成 TLS 握手。一个包可装多个流的帧，丢一个包也可能影响多个流；独立性体现在重组和交付规则，而不是物理网络突然分成独享链路。拥塞窗口、路径、CPU 和应用依赖仍可能共享。
+
+QPACK 把压缩状态更新放在专用流上，并限制可阻塞流的数量。引用尚未到达的动态条目可能暂时阻塞解码；使用静态表或字面量能减少这种依赖，但压缩收益也可能变化。优化要做取舍，不能背成“HTTP/3 完全没有队头阻塞”。
+
+| 版本     | 并发组织                   | 仍需注意的等待                  |
+| -------- | -------------------------- | ------------------------------- |
+| HTTP/1.1 | 多连接；流水线仍有响应顺序 | 前一个响应、连接获取、TCP 缺口  |
+| HTTP/2   | 一条 TCP 上交错多个流      | TCP 缺口、流/连接额度、应用依赖 |
+| HTTP/3   | QUIC 上多条独立有序流      | 本流缺口、QPACK、共享拥塞与资源 |
+
+<Quiz id="net-mux-limit" />
+
+HTTP/3 的部署还取决于客户端、服务端、中间网络与 UDP 可达性。可通过服务通告等方式发现能力，再根据环境选择连接与回退策略。是否更快应按真实请求大小、RTT、丢失和 CPU 消耗测量。
+
+</section>
+
+<section id="go" className="lesson-section">
+<div className="section-kicker">04 / 把“支持”变成观察到的事实</div>
+
+## 检查实际响应协议
+
+Go 1.27.1 的 `net/http` 可通过 `Protocols` 明确配置 HTTP/1 与 HTTP/2 等协议。下面设置允许集合，最终仍应读取 `resp.Proto` 或 `ProtoMajor`。不要仅根据 URL 或某个配置字段就声称已经使用 HTTP/2。
+
+```go
+tr := http.DefaultTransport.(*http.Transport).Clone()
+tr.Protocols = new(http.Protocols)
+tr.Protocols.SetHTTP1(true)
+tr.Protocols.SetHTTP2(true)
+client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+// 复用 client；服务生命周期结束时关闭空闲连接。
+```
+
+本章不把普通 `http.Client` 当成自动支持 HTTP/3 的客户端。该基线的公开 Protocols 配置没有一个“默认开启 HTTP/3”的承诺；使用专门实现时需固定版本并验证连接与回退。
+
+`examples/go/multiplex/` 启用本地 TLS 与 HTTP/2：先让 A 停在服务端门闩，再通过同一连接完成 B，最后取消 A 并确认服务端退出。测试同时检查协议版本和连接复用。它验证 HTTP/2 的应用流并行，不使用真实丢包，也不冒充 QUIC 集成测试；HTTP/3 的受限对照由模型及 RFC 支撑。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 协议升级之后仍要回答的问题</div>
+
+## 找到阻塞所在的层
+
+<Followups items={multiplexFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 一分钟表达</div>
+
+## 每次说“无阻塞”，先补上范围
+
+“HTTP/2 通过流和帧解除响应顺序的限制，但同一 TCP 字节缺口仍会挡住后续交付。HTTP/3 的 QUIC 流独立有序，减少传输层跨流等待；拥塞、连接额度、头压缩与业务依赖仍可能共享，所以升级不是所有场景更快的保证。”
+
+核验于 **2026-09-20**；Go 样本 **1.27.1 / linux / amd64**。协议依据固定 RFC 编号；本节未引入第三方 QUIC 库，浏览器实验不会建立真实 QUIC 连接。
+
+<SourceList />
+<LessonFinish />
+</section>

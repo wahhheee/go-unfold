@@ -28,6 +28,8 @@ import { flowQuestions } from './network/flow';
 
 import { httpQuestions } from './network/http';
 
+import { multiplexQuestions } from './network/multiplex';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -44,6 +46,7 @@ export const questions: Question[] = [
   ...tcpQuestions,
   ...flowQuestions,
   ...httpQuestions,
+  ...multiplexQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',

@@ -86,3 +86,39 @@ test('HTTP：响应体占用、复用与空闲关闭', async ({ page }, testInfo
   await lab.getByRole('combobox').selectOption('2');
   await expect(lab.locator('.network-lane')).toHaveCount(0);
 });
+
+test('多路复用：TCP 缺口、QUIC 独立流与压缩依赖', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-multiplex#lab');
+  const lab = page.getByRole('region', { name: 'HTTP 多路复用与队头阻塞实验' });
+  for (let i = 0; i < 6; i++) await lab.getByRole('button', { name: '推进一个到达事件' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '可交付 0 / 2',
+    '可交付 0 / 2',
+    '可交付 0 / 2',
+  ]);
+  await lab.screenshot({ path: testInfo.outputPath('multiplex-light.png') });
+  await lab.getByRole('combobox', { name: '承载协议' }).selectOption('h3');
+  for (let i = 0; i < 6; i++) await lab.getByRole('button', { name: '推进一个到达事件' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '可交付 0 / 2',
+    '可交付 2 / 2',
+    '可交付 2 / 2',
+  ]);
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('multiplex-dark.png') });
+  await lab.getByRole('checkbox').check();
+  for (let i = 0; i < 6; i++) await lab.getByRole('button', { name: '推进一个到达事件' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '可交付 0 / 2',
+    '可交付 0 / 2',
+    '可交付 0 / 2',
+  ]);
+  await lab.getByRole('button', { name: '补齐丢失与依赖' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '可交付 2 / 2',
+    '可交付 2 / 2',
+    '可交付 2 / 2',
+  ]);
+  await lab.getByRole('button', { name: '回退一步' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('6 / 7 步');
+});

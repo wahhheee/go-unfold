@@ -88,6 +88,10 @@ const HttpPoolLab = lazy(() =>
   import('./HttpPoolLab').then((module) => ({ default: module.HttpPoolLab })),
 );
 
+const MultiplexLab = lazy(() =>
+  import('./MultiplexLab').then((module) => ({ default: module.MultiplexLab })),
+);
+
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label="知识对照表">
@@ -183,6 +187,7 @@ const mdxComponents = {
   StreamLab,
   FlowLab,
   HttpPoolLab,
+  MultiplexLab,
   Callout,
   Quiz,
   ValueCopyLab,
