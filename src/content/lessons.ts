@@ -34,6 +34,8 @@ import { httpLesson } from './network/http';
 
 import { multiplexLesson } from './network/multiplex';
 
+import { tlsLesson } from './network/tls';
+
 export type LessonDefinition = {
   id: string;
   moduleId: string;
@@ -97,6 +99,7 @@ export const lessons: LessonDefinition[] = [
   flowLesson,
   httpLesson,
   multiplexLesson,
+  tlsLesson,
 ];
 
 export function findLesson(id: string) {

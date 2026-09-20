@@ -1,0 +1,102 @@
+import { tlsFollowups } from '../network/tls';
+
+<section id="identity" className="lesson-section">
+<div className="section-kicker">01 / 证书报错后别急着关验证</div>
+
+## 加密给了谁，和有没有加密一样重要
+
+服务搬家后 TLS 报主机名不匹配，有人把 `InsecureSkipVerify` 设为 true，请求立刻成功。错误消失了，但现在客户端可能把秘密加密后交给了错误的对端。
+
+TLS 希望建立具备身份认证、机密性和完整性保护的通道。证书把标识与公钥关联起来；客户端从**自己原本期望访问的服务名字**出发，验证证书链是否通向可信根、名字是否匹配、证书是否在有效期内，以及用途等约束。不能先听对端说自己是谁，再把那个名字当作期望值。
+
+私有服务也可以用私有 CA，但应把该 CA 正确加入受控信任配置。跳过验证和建立信任不是同一件事。
+
+<Quiz id="net-tls-identity" />
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 每次只拿掉一个条件</div>
+
+## 看握手停在哪一步
+
+先完成一次正常握手。再分别取消“服务名字匹配”“信任签发链”“证书在有效期内”，观察失败位置。最后取消共同 ALPN，比较它与证书错误的不同。
+
+<TlsLab />
+
+SNI 帮助同一地址上的服务选择虚拟主机；ALPN 协商接下来使用 h2 还是其他应用协议。名字选择、证书名字校验和协议选择是相关但不同的动作。实验假设双方都启用 ALPN，且服务只接受共同协议；真实 API 还允许没有 ALPN 的场景。
+
+<Quiz id="net-tls-alpn" />
+</section>
+
+<section id="handshake" className="lesson-section">
+<div className="section-kicker">03 / 握手不只是传一张证书</div>
+
+## 协商、证明与确认，分别解决一件事
+
+TLS 1.3 完整证书认证握手中，ClientHello 提供能力与密钥协商材料，服务端选择参数并返回自己的材料；随后客户端验证证书与握手证明。CertificateVerify 将私钥持有证明绑定到握手上下文，Finished 确认握手记录与密钥建立的一致性。普通应用数据再由协商出的对称密钥保护。
+
+这不是“用证书公钥加密所有 HTTP 内容”。证书认证、密钥协商和记录加密有不同职责；恢复会话使用 PSK 时，握手形态也不同。图里的阶段不是固定 TCP 包数，分段、重传、HelloRetryRequest 等都会改变实际往返。
+
+会话恢复复用先前建立的安全上下文来减少成本；0-RTT 进一步允许满足条件的客户端提前发送数据，却带来重放边界。服务端的防重措施也不能代替应用对重复请求的处理。扣款、创建订单等副作用不能只因为“已经加密”就无条件早发。
+
+<Quiz id="net-tls-early" />
+
+本节按核验时已发布的 **RFC 9846** 讲解 TLS 1.3。它于 2026 年 7 月取代 RFC 8446；旧编号仍常见于代码与材料，但不能再标成当前未被替代的规范。新规范的防重约束也不应被压缩成“0-RTT 绝对不安全”或“开启后自动安全”。
+
+</section>
+
+<section id="go" className="lesson-section">
+<div className="section-kicker">04 / 让代码保留该有的边界</div>
+
+## 从目标服务名配置校验
+
+下面是固定服务的拨号片段。`trustedRoots` 来自受控 CA 配置，`parent` 由调用方传入；地址与期望服务名可不同，比如直连 IP 但验证域名。一般 HTTP 调用优先交给配置好的 Transport 管理 TLS。
+
+```go
+dialer := &tls.Dialer{
+    NetDialer: &net.Dialer{Timeout: 2 * time.Second},
+    Config: &tls.Config{
+        MinVersion: tls.VersionTLS13,
+        RootCAs: trustedRoots,
+        ServerName: "api.example.test",
+        NextProtos: []string{"h2", "http/1.1"},
+    },
+}
+ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+defer cancel()
+conn, err := dialer.DialContext(ctx, "tcp", address)
+if err != nil {
+    return err
+}
+defer conn.Close()
+// 原始连接后续 I/O 仍需独立的读写期限和退出协议。
+```
+
+限定 TLS 1.3 是此示例的前提，生产支持范围要结合客户端能力和组织策略。不要把示例配置误解成通用兼容性保证。配置在并发使用前准备好，不能一边握手一边随意修改共享字段。
+
+<Quiz id="net-tls-context" />
+
+`examples/go/tlsidentity/` 临时生成测试 CA 与服务证书，在回环 TCP 上执行真实 TLS 1.3 握手，验证正确身份与 ALPN，并分别拒绝不可信根、名字不匹配、过期时间和协议不相交。测试私钥只存在于内存，不写入仓库；这不是证书签发服务。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 从握手成功往业务走</div>
+
+## 信任不是一个开关就能概括
+
+<Followups items={tlsFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 一分钟表达</div>
+
+## 先确认是谁，再讨论怎样安全交换
+
+“TLS 的加密不能代替身份验证。客户端从期望名字与信任根出发验证对端，SNI 用于选择服务，ALPN 用于协商应用协议。恢复与早期数据降低等待，但 0-RTT 需要重放设计；mTLS 认证也不代替业务授权。”
+
+核验于 **2026-09-20**，Go 样本 **1.27.1 / linux / amd64**。实验只是握手检查顺序的教学模型，不执行密码运算；实际证书验证与协议失败由本地集成测试支撑。
+
+<SourceList />
+<LessonFinish />
+</section>

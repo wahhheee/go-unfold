@@ -122,3 +122,22 @@ test('多路复用：TCP 缺口、QUIC 独立流与压缩依赖', async ({ page 
   await lab.getByRole('button', { name: '回退一步' }).click();
   await expect(lab.locator('.live-label')).toHaveText('6 / 7 步');
 });
+
+test('TLS：信任、名字、有效期与协议独立校验', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-tls#lab');
+  const lab = page.getByRole('region', { name: 'TLS 身份与协议协商实验' });
+  for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '推进握手' }).click();
+  await expect(lab.getByRole('status')).toContainText('握手完成');
+  await lab.screenshot({ path: testInfo.outputPath('tls-light.png') });
+  await lab.getByRole('checkbox', { name: '服务名字匹配' }).uncheck();
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '推进握手' }).click();
+  await expect(lab.getByRole('status')).toContainText('服务名字不匹配');
+  await expect(lab.getByRole('button', { name: '推进握手' })).toBeDisabled();
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('tls-dark.png') });
+  await lab.getByRole('checkbox', { name: '存在共同 ALPN' }).uncheck();
+  for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '推进握手' }).click();
+  await expect(lab.getByRole('status')).toContainText('没有共同 ALPN');
+  await lab.getByRole('button', { name: '重置握手' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('阶段 0 / 4');
+});

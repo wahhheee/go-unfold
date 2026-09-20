@@ -11,7 +11,7 @@
 | 3.3  | network-flow      | 有带宽为何还慢？累计确认、重传、接收窗口与拥塞窗口；在途数据实验        | 已发布：75 项单测、116 项浏览器检查及 Go / vet / race 通过 |
 | 3.4  | network-http      | HTTP 请求何时算完成？语义、消息边界、响应体与连接池；连接占用实验       | 已发布：77 项单测、120 项浏览器检查及 Go / vet / race 通过 |
 | 3.5  | network-multiplex | 多路复用解决了哪种阻塞？HTTP/2、HTTP/3、QUIC；丢包与流交付实验          | 已发布：79 项单测、124 项浏览器检查及 Go / vet / race 通过 |
-| 3.6  | network-tls       | 加密后就可信了吗？TLS 1.3、证书、ALPN、恢复与 0-RTT；身份校验握手实验   | 规划                                                       |
+| 3.6  | network-tls       | 加密后就可信了吗？TLS 1.3、证书、ALPN、恢复与 0-RTT；身份校验握手实验   | 已发布：81 项单测、128 项浏览器检查及 Go / vet / race 通过 |
 | 3.7  | network-process   | 进程到底拥有什么？线程、系统调用、文件描述符与共享偏移；描述符引用实验  | 规划                                                       |
 | 3.8  | network-memory    | 分配内存就占满物理页吗？地址空间、缺页、COW、RSS；页映射实验            | 规划                                                       |
 | 3.9  | network-netpoll   | 一个线程如何等许多连接？阻塞、就绪、epoll 与 Go netpoll；就绪与排空实验 | 规划                                                       |
