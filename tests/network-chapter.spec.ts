@@ -65,3 +65,24 @@ test('窗口：累计缺口、重传与慢消费者', async ({ page }, testInfo)
   await lab.getByRole('button', { name: '按窗口发送' }).click();
   await expect(lab.getByRole('status')).toContainText('发送 2 段');
 });
+
+test('HTTP：响应体占用、复用与空闲关闭', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-http#lab');
+  const lab = page.getByRole('region', { name: 'HTTP 响应体与连接池实验' });
+  for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '发起新请求' }).click();
+  await lab.getByRole('button', { name: '收到响应头' }).click();
+  await expect(lab.locator('.network-cells')).toContainText('请求 2');
+  await lab.screenshot({ path: testInfo.outputPath('http-light.png') });
+  for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '读取一块' }).click();
+  await expect(lab.locator('.network-lane')).toContainText('连接 1 · 请求 2');
+  await lab.getByRole('button', { name: '收到响应头' }).click();
+  await lab.getByRole('button', { name: '发起新请求' }).click();
+  await lab.getByRole('button', { name: '提前关闭 Body' }).click();
+  await expect(lab.locator('.network-lane')).toContainText('连接 2 · 请求 3');
+  await lab.getByRole('button', { name: '关闭空闲连接', exact: true }).click();
+  await expect(lab.locator('.network-lane')).toHaveCount(1);
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('http-dark.png') });
+  await lab.getByRole('combobox').selectOption('2');
+  await expect(lab.locator('.network-lane')).toHaveCount(0);
+});

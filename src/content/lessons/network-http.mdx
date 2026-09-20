@@ -1,0 +1,110 @@
+import { httpFollowups } from '../network/http';
+
+<section id="semantics" className="lesson-section">
+<div className="section-kicker">01 / 请求返回了，资源还没归还</div>
+
+## 先分清三种“成功”
+
+一个接口调用返回了 `200`，但后面的请求都在等连接。排查发现，代码拿到响应头后就返回，既不继续读响应体，也不关闭它。服务看起来“不忙”，资源却还被占着。
+
+`client.Do` 的错误回答传输、协议或客户端策略是否出错；HTTP 状态表达服务器对请求的响应；业务内容还可能表示余额不足、部分成功等结果。非 2xx 状态不会自动变成 Go error。即便是 200，响应体随后仍可能截断，业务字段也可能不满足预期。
+
+<Quiz id="net-http-status" />
+
+方法语义同样要分层理解。GET、HEAD 等安全方法的预期语义是读取；PUT、DELETE 等幂等方法承诺重复相同请求的预期效果与一次相同，**不要求每次响应一模一样**。服务若让 GET 执行扣款，就是服务破坏了方法语义。POST 的重试安全性需要业务另行设计。
+
+</section>
+
+<section id="framing" className="lesson-section">
+<div className="section-kicker">02 / 字节流上方还有消息协议</div>
+
+## 响应体结束，不需要整条连接结束
+
+上一节的长度前缀解决了自定义消息边界。HTTP/1.1 也必须在连续字节里找到每个消息的终点。先按方法、状态等语义判断是否有体，再应用消息长度规则，不能只找一个换行符。
+
+| 典型情形                       | 怎样判断消息体结束         | 注意什么                               |
+| ------------------------------ | -------------------------- | -------------------------------------- |
+| HEAD 响应、204、304 等无体情形 | 按协议语义没有消息体       | 不能因为看到长度字段就硬读载荷         |
+| 有效 Content-Length            | 读取准确的载荷字节数       | 过早关闭是截断                         |
+| chunked 传输编码               | 解码块，处理零块与尾部字段 | 块边界不是业务记录边界                 |
+| 允许以关闭定界的响应           | 读到连接关闭               | 无法继续复用这条连接，也难区分意外中断 |
+
+请求和响应的规则不同；CONNECT 成功后、101 升级等也有特殊语义。实际工程交给成熟的 HTTP 库处理。代理与后端对消息边界的不同解释，会引出请求走私风险；不要把冲突的 Transfer-Encoding / Content-Length 原样转发并“任选一个”。乐观协议切换另有 RFC 9931 的约束。
+
+<Quiz id="net-http-end" />
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">03 / 把池堵住，再释放它</div>
+
+## 响应头到了，连接为什么还忙？
+
+保持总连接上限为 1，连续发起两个请求，再点击“收到响应头”。第二个请求仍在排队。读完三块，观察它拿到的是不是同一条连接，拨号次数有没有增加。
+
+<HttpPoolLab />
+
+重置后重复两次请求，这次提前关闭 Body。模型会丢弃连接并重新拨号。**这条分支是教学简化**：下面会解释 Go 1.27.1 的有限排空优化。再试“关闭空闲连接”，看它会不会把活跃响应体关掉。
+
+</section>
+
+<section id="client" className="lesson-section">
+<div className="section-kicker">04 / 关闭责任与复用条件</div>
+
+## Client 发起请求，Transport 管理连接
+
+复用配置好的 Client 和 Transport，可减少重复连接建立。`MaxIdleConns` 与 `MaxIdleConnsPerHost` 控制空闲保留数量；`MaxConnsPerHost` 控制每主机拨号中、活跃与空闲连接的总量。HTTP/2 还有流并发限制，因此连接数量不等于业务并发数。
+
+<Quiz id="net-http-idle" />
+
+Go 返回响应后，调用方负责关闭 Body。通常读到 EOF 并关闭，才为 HTTP/1.1 复用提供完整条件；连接仍可能因服务端关闭、错误或池策略而不可复用。**Go 1.27.1 实现还会在提前关闭后尝试有限后台排空**，受字节与时间限制；这些实现阈值不是 API 对复用的承诺，升级时需重新核验。
+
+<Quiz id="net-http-close" />
+
+下面片段用于有界 JSON 类响应，不适合无限事件流。`client` 已设置总体超时，`req` 带调用方 Context。响应太大时及时放弃；没有必要为了复用牺牲资源上限。
+
+```go
+resp, err := client.Do(req)
+if err != nil {
+    return nil, err
+}
+defer resp.Body.Close()
+const maxBody = 1 << 20
+body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+if err != nil {
+    return nil, fmt.Errorf("read response: %w", err)
+}
+if len(body) > maxBody {
+    return nil, fmt.Errorf("response too large")
+}
+if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+    return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+}
+return body, nil
+```
+
+把这段逻辑放进每次调用的短函数，比在长循环里累积 `defer` 更容易及时释放资源。不要把 `ResponseHeaderTimeout` 当成响应体读取期限；请求 Context 或 Client.Timeout 才能覆盖更完整的生命周期。最后一节会组合这些预算。
+
+本节 `examples/go/httplife/` 使用真实本地 HTTP/1.1 服务和 httptrace 验证：500 不自动报调用错误、读到 EOF 后连接复用、接收了头并不代表体已完成，以及当前版本提前关闭小响应后的有限排空。所有等待都有上限，无外网依赖。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 让接口契约落到资源上</div>
+
+## 从“记得 Close”继续往下推
+
+<Followups items={httpFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 记忆锚点</div>
+
+## 状态、消息完成、连接归还，分别检查
+
+“HTTP 状态与 Go error 不同，拿到头也不等于读完体。调用方负责关闭 Body；复用取决于完整消息边界和连接状态。连接池在 Transport，空闲上限与总连接上限不同，当前版本的有限排空是优化而非成功保证。”
+
+核验于 **2026-09-20**，Go 基线 **1.27.1 / linux / amd64**。本节重点是普通 HTTP/1.1 请求，不完整实现代理、升级或隧道。有限排空行为同时对照了版本源码与本地测试。
+
+<SourceList />
+<LessonFinish />
+</section>

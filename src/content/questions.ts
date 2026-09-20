@@ -26,6 +26,8 @@ import { tcpQuestions } from './network/tcp';
 
 import { flowQuestions } from './network/flow';
 
+import { httpQuestions } from './network/http';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -41,6 +43,7 @@ export const questions: Question[] = [
   ...dnsQuestions,
   ...tcpQuestions,
   ...flowQuestions,
+  ...httpQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',
