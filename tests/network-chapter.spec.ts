@@ -141,3 +141,27 @@ test('TLS：信任、名字、有效期与协议独立校验', async ({ page }, 
   await lab.getByRole('button', { name: '重置握手' }).click();
   await expect(lab.locator('.live-label')).toHaveText('阶段 0 / 4');
 });
+
+test('描述符：dup、继承与重新 open 的偏移', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-process#lab');
+  const lab = page.getByRole('region', { name: '进程描述符与共享偏移实验' });
+  await lab.getByRole('button', { name: '读取两字节' }).click();
+  await lab.getByRole('button', { name: '复制描述符 dup' }).click();
+  await lab.getByRole('combobox', { name: '操作描述符' }).selectOption('4');
+  await lab.getByRole('button', { name: '读取两字节' }).click();
+  await expect(lab.getByRole('status')).toContainText('读到 CD');
+  await lab.getByRole('button', { name: '创建子进程视图' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('process-light.png') });
+  await lab.getByRole('button', { name: '关闭所选描述符' }).click();
+  await lab.getByRole('combobox', { name: '操作进程' }).selectOption('子进程');
+  await lab.getByRole('button', { name: '读取两字节' }).click();
+  await expect(lab.getByRole('status')).toContainText('读到 EF');
+  await lab.getByRole('button', { name: '重新 open 文件' }).click();
+  await lab.getByRole('combobox', { name: '操作描述符' }).selectOption('5');
+  await lab.getByRole('button', { name: '读取两字节' }).click();
+  await expect(lab.getByRole('status')).toContainText('读到 AB');
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('process-dark.png') });
+  await lab.getByRole('button', { name: '重置描述符' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('1 个引用');
+});

@@ -1,0 +1,94 @@
+import { processFollowups } from '../network/process';
+
+<section id="ownership" className="lesson-section">
+<div className="section-kicker">01 / 谁拥有资源，谁正在执行</div>
+
+## 进程与线程，不只是轻重之分
+
+Go 服务里有许多 goroutine，它们打开连接、读取配置、写日志。某个任务结束了，连接未必就自动关闭；某个线程暂时不执行，进程的文件也不会因此消失。理解操作系统，先把**资源归属**和**执行现场**拆开。
+
+进程拥有地址空间、描述符等资源与隔离边界。线程是被操作系统调度的执行实体，有自己的寄存器状态、栈与调度状态；同进程普通线程共享地址空间等资源。各有栈不表示栈不可被其他线程访问：地址空间仍共享，传出栈上对象引用也必须遵守语言和同步规则。
+
+Go 的 goroutine 则由运行时调度到操作系统线程上。一个 goroutine 可以随调度迁移，不适合把线程局部身份直接当成请求身份。第一章的 G/M/P 解释运行时如何分配执行资源，这里补上操作系统的资源视角。
+
+<Quiz id="net-process-thread" />
+</section>
+
+<section id="syscalls" className="lesson-section">
+<div className="section-kicker">02 / 过边界不一定换人</div>
+
+## 系统调用是受控进入内核的入口
+
+用户态代码不能随意操作设备与其他进程的内存。读写、映射、创建进程等操作通过系统调用进入内核，由内核检查权限并执行。一次系统调用可能立即返回，也可能等待资源。
+
+“用户态切到内核态”与“从线程 A 调度到线程 B”不是同一件事。当前线程可以进入内核又直接返回；等待、抢占等才可能引出调度切换。线程切换有保存恢复执行状态、缓存影响等成本，但不存在一个适用于所有机器的固定纳秒数。
+
+同样，Go 的一次 `Read` 不等于一次磁盘访问：可能命中缓冲，可能从页缓存复制，也可能等待设备。把每一层观察到的事件对齐，才能解释延迟。
+
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">03 / 一个整数背后还有两层</div>
+
+## fd 指向表项，表项指向打开文件描述
+
+Linux 的文件描述符是进程表中的整数索引；打开文件描述记录当前偏移、文件状态标志等。重新 open 同一路径会创建新的打开文件描述；dup 则新增一个指向原描述的引用。
+
+先读两字节，再 dup，选择新描述符继续读。然后重新 open 文件，选择新打开的描述符读取，对比结果。最后创建子进程视图，在父子间交替读一次，再关闭父进程的引用。
+
+<DescriptorLab />
+
+<Quiz id="net-process-dup" />
+
+fork 复制父进程的描述符表，但对应条目仍引用相同的打开文件描述。因此父子可以共享读取位置，也可能意外保留一个本该关闭的管道写端。复制整数数组不会自动得到独立资源。
+
+<Quiz id="net-process-fork" />
+</section>
+
+<section id="lifecycle" className="lesson-section">
+<div className="section-kicker">04 / 创建、替换、收尾</div>
+
+## 程序不是进程，退出不是回收完成
+
+fork 创建子进程；execve 把当前进程映像替换为另一个程序，保留 PID 等身份。CLOEXEC 决定指定描述符在 exec 时关闭，以免不需要的资源流入新程序。多线程程序应优先使用原子设置该标志的创建方式，避免先打开再补标志的窗口。
+
+子进程退出后，内核保留一部分退出信息供父进程读取。若未按约定 wait，可能留下僵尸状态；僵尸不是仍在运行的后台任务，也不是“所有内存都没释放”。进程生命周期要包括开始、取消、等待与 I/O 收尾。
+
+<Quiz id="net-process-exec" />
+
+Go 通常使用 `os/exec`。下面的固定参数执行示例不经过 shell，避免无意引入额外解析；Context 为执行设置上限。需要处理输出流或子孙进程时，还应明确额外的所有权策略。
+
+```go
+ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+defer cancel()
+cmd := exec.CommandContext(ctx, executable, "--version")
+if err := cmd.Run(); err != nil {
+    return fmt.Errorf("run version command: %w", err)
+}
+// Run 已包含 Start 与 Wait；单独 Start 成功后必须安排 Wait。
+```
+
+本节固定测试在 `examples/go/descriptors/`，仅 Linux 执行：验证 dup 的共享偏移、重新 open 的独立偏移，再通过 `ExtraFiles` 将一个已读过的文件传给测试子进程，确认继承后从共享位置继续读取。子进程仅执行仓库内固定样本，显式限时并等待完成。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 生命周期的反例最能说明问题</div>
+
+## 资源还在，是谁仍握着它？
+
+<Followups items={processFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 一分钟表达</div>
+
+## 先画资源引用，再看执行与等待
+
+“进程组织资源与隔离，线程承载执行，系统调用是内核入口。fd 是表项索引，dup 和 fork 可共享打开文件描述；关闭单个引用不等于撤销所有引用。创建进程还要负责 Wait 与管道、子孙的生命周期。”
+
+核验于 **2026-09-20**；本节以 **Linux 与 Go 1.27.1 / amd64** 为前提。Windows 句柄和进程创建不能直接套用这里的 fork、fd、CLOEXEC 细节。
+
+<SourceList />
+<LessonFinish />
+</section>

@@ -4039,6 +4039,10 @@ strong {
   color: var(--muted);
   line-height: 1.7;
 }
+.network-cell.is-active > span,
+.network-cell.is-active small {
+  color: var(--text);
+}
 .network-cell strong {
   display: block;
   font-size: 16px;
