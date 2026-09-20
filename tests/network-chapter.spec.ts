@@ -42,3 +42,26 @@ test('TCP：短读、消息定界与截断', async ({ page }, testInfo) => {
   await lab.getByRole('button', { name: '重置字节流' }).click();
   await expect(lab.locator('.live-label')).toHaveText('0 / 7 字节');
 });
+
+test('窗口：累计缺口、重传与慢消费者', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-flow#lab');
+  const lab = page.getByRole('region', { name: 'TCP 窗口与丢失恢复实验' });
+  await lab.getByRole('button', { name: '按窗口发送' }).click();
+  await lab.getByRole('button', { name: '交付并返回 ACK' }).click();
+  await expect(lab.getByRole('status')).toContainText('累计确认停在 1');
+  await lab.screenshot({ path: testInfo.outputPath('flow-light.png') });
+  await lab.getByRole('button', { name: '重传缺失段' }).click();
+  await lab.getByRole('button', { name: '交付并返回 ACK' }).click();
+  await expect(lab.getByRole('status')).toContainText('前进到 4');
+  await lab.getByRole('button', { name: '按窗口发送' }).click();
+  await expect(lab.getByRole('status')).toContainText('没有新发送额度');
+  await lab.getByRole('button', { name: '应用读取连续数据' }).click();
+  await lab.getByRole('button', { name: '按窗口发送' }).click();
+  await expect(lab.getByRole('status')).toContainText('发送 4 段');
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({ path: testInfo.outputPath('flow-dark.png') });
+  await lab.getByRole('slider', { name: '拥塞窗口' }).fill('2');
+  await expect(lab.locator('.live-label')).toHaveText('已交付应用 0 / 12');
+  await lab.getByRole('button', { name: '按窗口发送' }).click();
+  await expect(lab.getByRole('status')).toContainText('发送 2 段');
+});

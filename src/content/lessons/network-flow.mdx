@@ -1,0 +1,98 @@
+import { flowFollowups } from '../network/flow';
+
+<section id="windows" className="lesson-section">
+<div className="section-kicker">01 / 数据不是一口气灌过去的</div>
+
+## “还能发多少”要同时问两边
+
+服务器网卡标着很高的速率，但跨地域下载仍很慢。带宽只是一个限制。发送方还要等确认、尊重接收端余量，并避免把路径上的队列压满。
+
+**接收窗口 rwnd** 由接收侧通告，用于限制对方发送到尚可容纳的序列范围；**拥塞窗口 cwnd** 由发送侧维护，用于约束向路径注入的未确认数据。前者保护接收方，后者响应网络拥塞。二者都以字节量理解，而不是“每秒多少请求”。
+
+在没有复杂恢复等额外条件的基础模型里，允许在途总量受 `min(cwnd, rwnd)` 限制；新增发送额度还要减去已发未确认的部分。实际发送也受应用是否提供数据、发送缓冲、pacing 与算法状态等约束。
+
+<Quiz id="net-flow-window" />
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 看见数据卡在哪一格</div>
+
+## 缺的是确认，还是消费？
+
+先保持两个窗口为 4，点击发送，再交付。第 2 段丢了，后面的段已经在接收端，却仍标着“等缺口”。现在重传并再次交付，观察 ACK 一次跨过多少段。
+
+<FlowLab />
+
+别急着点“应用读取”。此时数据连续收到，但应用尚未消费，接收窗口可以为零；确认与应用消费是两件事。读完后额度才前移。再把 cwnd 改为 2、接收容量改为 8，对比限制来自哪里。
+
+<Quiz id="net-flow-gap" />
+
+TCP 序列号按字节推进，实验为了易读用等长段的位置代替。累计 ACK 表达“下一期待的字节位置”；SACK 可以报告已收到的不连续区间，帮助发送方避免重复发送已经到达的数据。它不允许应用越过字节流缺口读取后面的内容。
+
+<Quiz id="net-flow-zero" />
+</section>
+
+<section id="congestion" className="lesson-section">
+<div className="section-kicker">03 / 学机制，不背一条曲线</div>
+
+## 窗口增长与收缩，取决于算法和事件
+
+实验把 cwnd 固定，是为了分清额度与确认。真实 TCP 会调节它。经典慢启动阶段，随确认到达快速增加窗口；在理想条件下常画成每 RTT 近似翻倍，但不能把这幅图当成逐包定律。到达阈值后进入更谨慎的增长方式。
+
+在经典 Reno 框架下，拥塞避免近似按 RTT 加性增加；重复 ACK 可触发快速重传与恢复，超时则采取更保守的恢复。它们不是“遇到任何丢包就一律窗口减半”这一条规则。CUBIC 又采用不同的增长函数，面向高带宽长时延路径；ECN 也能提供拥塞信号，未必一定先丢包。
+
+| 观察到的信号         | 可支持的判断           | 不能直接推出       |
+| -------------------- | ---------------------- | ------------------ |
+| 接收窗口很小         | 接收侧通告额度受限     | 路径一定拥塞       |
+| 重复 ACK / SACK 缺口 | 收到数据的连续性有缺口 | 唯一原因就是丢包   |
+| RTO 到期             | 未及时获得所需确认     | 请求从未到达服务端 |
+| RTT 持续抬升         | 路径或处理的等待在增长 | 增加连接一定改善   |
+
+RTO 根据往返时间及波动估计，并受规范和实现规则约束。发生超时还要退避；如果每次超时都更激进地重发，反而可能加重拥塞。应用重试叠加在 TCP 重传之上，必须另有总体预算与副作用控制。
+
+</section>
+
+<section id="capacity" className="lesson-section">
+<div className="section-kicker">04 / 从数字走回代码</div>
+
+## 往返越远，填满管道需要的在途量越多
+
+用带宽时延积 BDP 做一个量级估算：目标吞吐乘以 RTT，得到维持该速率所需的在途数据量。注意比特与字节单位；若窗口远小于这个量级，单连接可能还没填满路径就要等确认。这个估算不包含丢失、协议开销、算法启动与应用停顿，不是吞吐承诺。
+
+<Quiz id="net-flow-bdp" />
+
+Go 的 `Write` 成功不能证明对端应用已经读了。内核缓冲吸收了一部分速度差；缓冲耗尽后，慢消费才逐步反映到发送方等待。不要靠某次小写入立刻阻塞，来测试流量控制是否存在。
+
+```go
+// 这是绝对期限；不是每次 Read 自动获得新的两秒。
+if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+    return err
+}
+n, err := conn.Read(buf)
+// 先处理 buf[:n]，再处理 err；成功接收仍不等于业务成功。
+```
+
+`examples/go/flow/` 用回环 TCP 和明确的读门闩验证“发送返回时对端应用还未读取”，并验证过期读期限与清除期限。它不改变系统拥塞参数，不把一次本地测试当作拥塞控制压测；窗口与缺口的边界由纯模型测试补足。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 把调参问题还原成等待问题</div>
+
+## 先找限制因素，再决定增加什么
+
+<Followups items={flowFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 记忆不靠曲线形状</div>
+
+## 接收余量、路径额度、已发未确认
+
+“rwnd 约束接收容量，cwnd 约束网络注入量，新增发送还要扣掉在途。累计 ACK 不能越过缺口，应用消费又晚于传输确认。吞吐问题先看窗口、RTT、丢失与应用进度，再讨论缓冲和并发。”
+
+核验于 **2026-09-20**，Go 样本基线 **Go 1.27.1 / linux / amd64**。RFC 5681 用于经典算法基础，CUBIC 单独依据 RFC 9438；不假设所有系统都使用同一种算法。模型不预测真实网络吞吐。
+
+<SourceList />
+<LessonFinish />
+</section>

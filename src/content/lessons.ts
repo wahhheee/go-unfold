@@ -28,6 +28,8 @@ import { dnsLesson } from './network/dns';
 
 import { tcpLesson } from './network/tcp';
 
+import { flowLesson } from './network/flow';
+
 export type LessonDefinition = {
   id: string;
   moduleId: string;
@@ -88,6 +90,7 @@ export const lessons: LessonDefinition[] = [
   diagnosticsLesson,
   dnsLesson,
   tcpLesson,
+  flowLesson,
 ];
 
 export function findLesson(id: string) {

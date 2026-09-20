@@ -82,6 +82,8 @@ const StreamLab = lazy(() =>
   import('./StreamLab').then((module) => ({ default: module.StreamLab })),
 );
 
+const FlowLab = lazy(() => import('./FlowLab').then((module) => ({ default: module.FlowLab })));
+
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label="知识对照表">
@@ -175,6 +177,7 @@ function LessonFinish() {
 const mdxComponents = {
   DnsLab,
   StreamLab,
+  FlowLab,
   Callout,
   Quiz,
   ValueCopyLab,
