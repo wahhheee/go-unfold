@@ -165,3 +165,31 @@ test('描述符：dup、继承与重新 open 的偏移', async ({ page }, testIn
   await lab.getByRole('button', { name: '重置描述符' }).click();
   await expect(lab.locator('.live-label')).toHaveText('1 个引用');
 });
+
+test('虚拟内存：共享驻留、写时复制与释放', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-memory#lab');
+  const lab = page.getByRole('region', { name: '虚拟页、驻留与写时复制实验' });
+  await expect(lab.locator('.network-cell strong')).toHaveText(['0 / 0 KiB', '0 KiB']);
+  await lab.getByRole('button', { name: '写入所选页 +1' }).click();
+  await lab.getByRole('button', { name: '派生子进程映射' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText(['4 / 4 KiB', '4 KiB']);
+  await lab.screenshot({
+    path: testInfo.outputPath('memory-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
+  await lab.getByRole('combobox', { name: '操作进程' }).selectOption('child');
+  await lab.getByRole('button', { name: '写入所选页 +1' }).click();
+  await expect(lab.getByRole('status')).toContainText('写时复制');
+  await expect(lab.locator('.network-cell strong')).toHaveText(['4 / 4 KiB', '8 KiB']);
+  await expect(lab.locator('.network-lane').first()).toContainText('值 1');
+  await expect(lab.locator('.network-lane').last()).toContainText('值 2');
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({
+    path: testInfo.outputPath('memory-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
+  await lab.getByRole('button', { name: '释放子进程映射' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText(['4 / 0 KiB', '4 KiB']);
+  await lab.getByRole('button', { name: '重置虚拟内存' }).click();
+  await expect(lab.locator('.live-label')).toHaveText('模型缺页 0 次');
+});

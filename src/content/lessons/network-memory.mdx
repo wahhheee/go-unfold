@@ -1,0 +1,103 @@
+import { memoryFollowups } from '../network/memory';
+
+<section id="mapping" className="lesson-section">
+<div className="section-kicker">01 / 内存曲线为什么说着不同的话</div>
+
+## 先看你正在数什么
+
+进程申请了一大片空间，虚拟内存增加，RSS 却变化很小。随后逐页写入，RSS 才逐步上升。另一个现象是父子进程各显示一份驻留量，但总物理内存没有立刻翻倍。这些都需要用映射理解。
+
+有 MMU 的常见 Linux 系统中，程序使用虚拟地址，页表描述虚拟页与物理帧的对应关系及权限，CPU 完成翻译。连续虚拟页可以映射到不连续物理帧；多个进程的映射也可以引用同一个物理帧。
+
+TLB 缓存近期地址翻译，减少页表遍历。TLB miss 是翻译缓存未命中，不必然等于 page fault。若映射尚未建立或访问需特殊处理，才可能触发缺页处理；某些非法访问无法修复，会导致进程异常。
+
+<Quiz id="net-vm-range" />
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 一次只写一页</div>
+
+## 先共享，再在写入时分开
+
+先写父进程的页 0，再派生子进程映射。比较两个驻留量与去重物理帧。选择子进程，写页 0，再看父子值与 F 编号是否分开。继续写同一页，会不会每次都新增帧？
+
+<MemoryMapLab />
+
+写时复制（COW）维护“逻辑上独立、暂时物理共享”的视图。发生写入时，系统为需要独立的映射准备副本，再修改它；另一方保留旧内容。它不是 Go 层的浅复制，也不保证任意共享映射都自动隔离写入。
+
+<Quiz id="net-vm-cow" />
+
+释放子进程映射后，只回收不再被父进程引用的帧。真实系统还包含页表、零页、大页、缓存与回收策略；本实验只计算画出来的四页，避免把一组整齐数字当成进程真实内存账单。
+
+</section>
+
+<section id="faults" className="lesson-section">
+<div className="section-kicker">03 / 缺页是处理入口，不是故障结论</div>
+
+## 第一次触碰，可能只是在兑现映射
+
+匿名映射可先保留地址范围，读取可能映射共享零页，首次写入再分配实际数据页。COW 也可通过缺页处理建立私有页。这类处理不一定需要磁盘读取；Linux 统计区分 minor fault 与涉及调入 I/O 的 major fault，实际开销仍与原因、压力有关。
+
+<Quiz id="net-vm-fault" />
+
+普通文件读写通常还经过页缓存。读取命中时无需再次访问存储设备，写入则可能先变成脏页，随后回写。`MAP_PRIVATE` 的写入是私有 COW，不写回原文件；`MAP_SHARED` 的更新可被其他共享映射观察到，但可见不等于已经持久化。
+
+下面展示私有映射的关键参数，限 Linux 固定样本。`f` 已打开且大小足够，映射长度取操作系统页大小，清理发生在不再使用切片之后。
+
+```go
+page, err := syscall.Mmap(int(f.Fd()), 0, os.Getpagesize(),
+    syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE)
+if err != nil {
+    return err
+}
+defer syscall.Munmap(page)
+page[0] = 'X' // 私有改动，不写回原文件。
+```
+
+映射保持期间，关闭原 fd 不会自动取消映射；解除映射后必须停止使用该切片。这里是本地固定证据，Web 实验不会运行内存系统调用。
+
+</section>
+
+<section id="metrics" className="lesson-section">
+<div className="section-kicker">04 / 各层指标回答不同问题</div>
+
+## 把同一份共享页算两次，会得出错误预算
+
+| 指标或视角             | 主要在数什么               | 常见误读                     |
+| ---------------------- | -------------------------- | ---------------------------- |
+| 虚拟地址范围 / VSS     | 已映射或保留的地址视图     | 等同于已占满物理内存         |
+| RSS                    | 进程驻留映射的页量         | 多进程相加当成去重物理量     |
+| PSS                    | 按共享关系分摊的驻留量     | 当成全部系统或容器成本       |
+| Go heap / runtime 指标 | 对象和运行时管理的内存     | 等同于 cgo、mmap 与整个 RSS  |
+| cgroup memory.current  | 组内按控制器规则计费的内存 | 只看一个进程的 heap 就能解释 |
+
+Go 的内存限制是运行时管理范围内的软限制，不是进程 RSS 的硬上限。容器内还需考虑外部分配、文件缓存等计费、瞬时峰值与安全余量。cgroup 的 memory.high 用于压力控制，memory.max 是硬限制路径之一；观察 memory.events 等信息才能区分回收压力与 OOM 事件。
+
+<Quiz id="net-vm-limit" />
+
+Linux 的 overcommit 策略影响虚拟内存承诺，后续触碰还会面对实际资源约束。这里不建议修改系统参数“解决 OOM”；先核对分配来源、工作集、并发与限额。
+
+`examples/go/vmemory/` 验证两个真实私有映射写入隔离，再验证共享映射能观察彼此更新，并读回文件确认私有写没有写回。测试不制造 OOM，不断言带噪声的 RSS 恰好变化多少，也不把内存可见性当成断电持久性。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 沿压力发生的位置追问</div>
+
+## 回收的是对象、页，还是映射？
+
+<Followups items={memoryFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 一分钟表达</div>
+
+## 先说口径，再说增长原因
+
+“虚拟地址通过页表映射到物理帧，保留范围不等于全部驻留。首次触碰和 COW 会改变物理占用，缺页不一定读磁盘。RSS、PSS、Go heap 与 cgroup 口径不同，GC 也不等于立刻向系统释放所有内存。”
+
+核验于 **2026-09-20**；**Linux / Go 1.27.1 / amd64**。实验固定页为 4 KiB，真实测试通过 `os.Getpagesize` 获取页大小；不同架构与大页配置不能套用实验数字。
+
+<SourceList />
+<LessonFinish />
+</section>
