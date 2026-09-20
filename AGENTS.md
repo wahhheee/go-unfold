@@ -10,3 +10,4 @@
 - 修改后按影响范围运行检查；发布前执行 `npm run format:check`、`npm run check` 与 `npm run test:e2e`。
 - 第一章逐节交付范围见 `docs/GO_CHAPTER.md`，每节还需运行 `npm run test:go`，检查好质量后单独提交。
 - 第二章逐节交付范围见 `docs/CONCURRENCY_CHAPTER.md`；每节还需通过真实 Go 示例与竞态检查，完成桌面和手机验证后单独提交。
+- 第三章逐节交付范围见 `docs/NETWORK_CHAPTER.md`；每节通过真实 Go、vet、race、桌面和手机检查后单独提交，网络样本限回环与临时资源。

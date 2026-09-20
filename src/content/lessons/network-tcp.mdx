@@ -50,13 +50,16 @@ func ReadFrame(r io.Reader) ([]byte, error) {
     }
     body := make([]byte, int(n))
     if _, err := io.ReadFull(r, body); err != nil {
+        if err == io.EOF {
+            err = io.ErrUnexpectedEOF // 帧头已读，缺少全部载荷仍是截断。
+        }
         return nil, err
     }
     return body, nil
 }
 ```
 
-`ReadFull` 把多次短读组织成“收齐指定字节”。若一个字节都没读到就结束，返回 EOF；只得到一部分则返回 ErrUnexpectedEOF。直接使用 `Read` 时，还要先处理 `n > 0` 的数据，再处理同次返回的错误。不要假定 `err != nil` 就一定没有数据。
+`ReadFull` 把多次短读组织成“收齐指定字节”。若一个字节都没读到就结束，返回 EOF；只得到一部分则返回 ErrUnexpectedEOF。帧解码器还要保留上下文：帧头已经读完后，即使载荷一个字节都没到，结束也应视为截断。上面的转换让消息间的正常 EOF 与不完整帧可以区分。直接使用 `Read` 时，还要先处理 `n > 0` 的数据，再处理同次返回的错误。不要假定 `err != nil` 就一定没有数据。
 
 边界合法仍可能迟迟收不齐。对 `net.Conn` 设置读写期限，配合连接拥有者的退出策略；`SetDeadline` 是绝对时间，持续作用于后续操作，清除或刷新需要显式调用。只有长度上限没有时间上限，也会被慢速发送方占住资源。
 

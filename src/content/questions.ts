@@ -19,25 +19,15 @@ import { groupsQuestions } from './concurrency/groups';
 import { poolQuestions } from './concurrency/pool';
 import { rateQuestions } from './concurrency/rate';
 import { diagnosticsQuestions } from './concurrency/diagnostics';
-
 import { dnsQuestions } from './network/dns';
-
 import { tcpQuestions } from './network/tcp';
-
 import { flowQuestions } from './network/flow';
-
 import { httpQuestions } from './network/http';
-
 import { multiplexQuestions } from './network/multiplex';
-
 import { tlsQuestions } from './network/tls';
-
 import { processQuestions } from './network/process';
-
 import { networkMemoryQuestions } from './network/memory';
-
 import { netpollQuestions } from './network/netpoll';
-
 import { requestDiagnosisQuestions } from './network/diagnosis';
 
 export type Question = {
@@ -52,16 +42,6 @@ export type Question = {
 };
 
 export const questions: Question[] = [
-  ...dnsQuestions,
-  ...tcpQuestions,
-  ...flowQuestions,
-  ...httpQuestions,
-  ...multiplexQuestions,
-  ...tlsQuestions,
-  ...processQuestions,
-  ...networkMemoryQuestions,
-  ...netpollQuestions,
-  ...requestDiagnosisQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',
@@ -138,6 +118,16 @@ export const questions: Question[] = [
   ...poolQuestions,
   ...rateQuestions,
   ...diagnosticsQuestions,
+  ...dnsQuestions,
+  ...tcpQuestions,
+  ...flowQuestions,
+  ...httpQuestions,
+  ...multiplexQuestions,
+  ...tlsQuestions,
+  ...processQuestions,
+  ...networkMemoryQuestions,
+  ...netpollQuestions,
+  ...requestDiagnosisQuestions,
 ];
 
 export function getQuestion(id: string): Question {

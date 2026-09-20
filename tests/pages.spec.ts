@@ -44,7 +44,9 @@ test('Pages 深链接刷新、锚点、翻页与主题可用', async ({ page }) 
   expect((await page.reload())?.status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page).toHaveTitle(/Go 探原$/);
-  const previous = page.getByRole('navigation', { name: '章节翻页' }).getByRole('link');
+  const previous = page
+    .getByRole('navigation', { name: '章节翻页' })
+    .getByRole('link', { name: /上一节/ });
   await expect(previous).toHaveAttribute('href', '/go-unfold/learn/concurrency-rate');
   await previous.click();
   await expect(page.getByRole('region', { name: '令牌桶与突发实验' })).toBeAttached();
@@ -68,4 +70,31 @@ test('带尾斜线的笔记页面保留标题、查询参数和记录', async ({
   await expect(page.locator('.notes-editor')).toHaveValue('静态入口也保留我的学习记录。');
   await page.getByRole('link', { name: '回到2.1 内存模型与顺序正文' }).click();
   await expect(page).toHaveURL(/\/go-unfold\/learn\/concurrency-memory$/);
+});
+
+test('第三章生产入口可加载实验、答题、刷新并翻页', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('requestfailed', (r) => errors.push(r.url()));
+  expect((await page.goto('learn/network-diagnosis/#lab'))?.status()).toBe(200);
+  const lab = page.getByRole('region', { name: '请求阶段、预算与结果未知实验' });
+  await expect(lab).toBeInViewport();
+  await lab.getByRole('button', { name: '运行到本次结束' }).click();
+  await expect(lab.getByRole('status')).toContainText('不能用超时推导服务端回滚');
+  const quiz = page.getByRole('region', { name: '响应头超时保护不到哪里？', exact: true });
+  await quiz.getByText('不能，需要覆盖整个请求的预算或适合流式读取的策略', { exact: true }).click();
+  await quiz.getByRole('button', { name: '验证答案' }).click();
+  await expect(quiz.getByRole('status')).toContainText('理解到位');
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  expect((await page.reload())?.status()).toBe(200);
+  await expect(quiz.getByRole('status')).toContainText('理解到位');
+  const previous = page
+    .getByRole('navigation', { name: '章节翻页' })
+    .getByRole('link', { name: /上一节/ });
+  await expect(previous).toHaveAttribute('href', '/go-unfold/learn/network-netpoll');
+  await previous.click();
+  await expect(page.getByRole('region', { name: '就绪通知与缓冲排空实验' })).toBeAttached();
+  expect((await page.reload())?.status()).toBe(200);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
 });

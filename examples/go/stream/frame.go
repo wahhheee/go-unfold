@@ -18,6 +18,10 @@ func ReadFrame(r io.Reader) ([]byte, error) {
 	}
 	body := make([]byte, int(n))
 	if _, err := io.ReadFull(r, body); err != nil {
+		// 已消费帧头，此处 EOF 也表示载荷截断，不是帧之间的正常结束。
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
 		return nil, err
 	}
 	return body, nil

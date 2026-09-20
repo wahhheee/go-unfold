@@ -50,6 +50,7 @@ export const modules: Module[] = [
   },
   {
     id: 'network',
+    contentComplete: true,
     number: '03',
     title: '网络与操作系统',
     description: '沿着一个请求，走过协议栈与内核。',

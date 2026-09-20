@@ -18,6 +18,23 @@
 | admission     | 令牌桶、预约取消、等待预算和加权额度    |
 | diagnostics   | 隔离竞争、泄漏画像、等待环与诊断采集    |
 
+第三章新增十组网络与操作系统验证：
+
+| 包          | 验证重点                                       |
+| ----------- | ---------------------------------------------- |
+| resolution  | 受控 DNS A 记录查询与取消                      |
+| stream      | 任意短读、定界、空载荷、截断与 TCP 半关闭      |
+| flow        | Write 与应用消费分离、绝对读期限和清除         |
+| httplife    | HTTP 状态、Body 消费与关闭、连接复用           |
+| multiplex   | 同一 HTTP/2 连接的独立请求与取消收尾           |
+| tlsidentity | 临时 CA、TLS 1.3、名字、信任、有效期与 ALPN    |
+| descriptors | Linux dup、继承与独立 open 的共享偏移          |
+| vmemory     | Linux 私有 COW 与共享映射的可见性边界          |
+| readiness   | Linux LT / ET 部分读取、EAGAIN 与关闭唤醒      |
+| requestlife | 取消后提交仍在、httptrace 复用与 Shutdown 等待 |
+
+全部网络访问限回环或受控传输，不访问外网；不依赖固定端口和特权。TLS 私钥只存在测试内存中；Linux 专用样本不会在其他平台冒充可用。HTTP/3、拥塞算法与实际 RSS 不由这些样本完整实现，相应正文明确模型和证据的范围。
+
 当前核验 Go 1.27.1 / linux / amd64，go.mod 固定 x/sync v0.23.0 和 x/time v0.16.0。同步测试优先用显式交接或 synctest 构造关键路径，不能把一次无报错当作所有执行正确的证明。
 
 ```bash

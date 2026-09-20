@@ -9,13 +9,19 @@ test('DNS：旧连接、缓存到期与新地址', async ({ page }, testInfo) =>
   await lab.getByRole('button', { name: '发起请求' }).click();
   await expect(lab.getByRole('status')).toContainText('仍访问 192.0.2.10');
   await expect(lab.getByTestId('dns-queries')).toHaveText('1');
-  await lab.screenshot({ path: testInfo.outputPath('dns-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('dns-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('button', { name: '关闭空闲连接' }).click();
   await lab.getByRole('button', { name: '发起请求' }).click();
   await expect(lab.getByRole('status')).toContainText('新建连接到 192.0.2.20');
   await expect(lab.getByTestId('dns-queries')).toHaveText('2');
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('dns-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('dns-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('slider').fill('60');
   await expect(lab.getByTestId('dns-queries')).toHaveText('0');
   await expect(lab.getByRole('button', { name: '关闭空闲连接' })).toBeDisabled();
@@ -26,7 +32,10 @@ test('TCP：短读、消息定界与截断', async ({ page }, testInfo) => {
   const lab = page.getByRole('region', { name: 'TCP 字节流与消息定界实验' });
   for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '读取一次' }).click();
   await expect(lab.locator('.network-cells')).toContainText('CAT、OK');
-  await lab.screenshot({ path: testInfo.outputPath('tcp-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('tcp-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('slider').fill('7');
   await lab.getByRole('checkbox').check();
   await lab.getByRole('button', { name: '读取一次' }).click();
@@ -34,7 +43,10 @@ test('TCP：短读、消息定界与截断', async ({ page }, testInfo) => {
   await expect(lab.getByRole('status')).toContainText('截断');
   await expect(lab.getByRole('button', { name: '读取一次' })).toBeDisabled();
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('tcp-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('tcp-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('checkbox').uncheck();
   await lab.getByRole('combobox').selectOption('read');
   await lab.getByRole('button', { name: '读取一次' }).click();
@@ -49,7 +61,10 @@ test('窗口：累计缺口、重传与慢消费者', async ({ page }, testInfo)
   await lab.getByRole('button', { name: '按窗口发送' }).click();
   await lab.getByRole('button', { name: '交付并返回 ACK' }).click();
   await expect(lab.getByRole('status')).toContainText('累计确认停在 1');
-  await lab.screenshot({ path: testInfo.outputPath('flow-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('flow-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('button', { name: '重传缺失段' }).click();
   await lab.getByRole('button', { name: '交付并返回 ACK' }).click();
   await expect(lab.getByRole('status')).toContainText('前进到 4');
@@ -59,7 +74,10 @@ test('窗口：累计缺口、重传与慢消费者', async ({ page }, testInfo)
   await lab.getByRole('button', { name: '按窗口发送' }).click();
   await expect(lab.getByRole('status')).toContainText('发送 4 段');
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('flow-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('flow-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('slider', { name: '拥塞窗口' }).fill('2');
   await expect(lab.locator('.live-label')).toHaveText('已交付应用 0 / 12');
   await lab.getByRole('button', { name: '按窗口发送' }).click();
@@ -72,7 +90,10 @@ test('HTTP：响应体占用、复用与空闲关闭', async ({ page }, testInfo
   for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '发起新请求' }).click();
   await lab.getByRole('button', { name: '收到响应头' }).click();
   await expect(lab.locator('.network-cells')).toContainText('请求 2');
-  await lab.screenshot({ path: testInfo.outputPath('http-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('http-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '读取一块' }).click();
   await expect(lab.locator('.network-lane')).toContainText('连接 1 · 请求 2');
   await lab.getByRole('button', { name: '收到响应头' }).click();
@@ -82,7 +103,10 @@ test('HTTP：响应体占用、复用与空闲关闭', async ({ page }, testInfo
   await lab.getByRole('button', { name: '关闭空闲连接', exact: true }).click();
   await expect(lab.locator('.network-lane')).toHaveCount(1);
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('http-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('http-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('combobox').selectOption('2');
   await expect(lab.locator('.network-lane')).toHaveCount(0);
 });
@@ -96,7 +120,10 @@ test('多路复用：TCP 缺口、QUIC 独立流与压缩依赖', async ({ page 
     '可交付 0 / 2',
     '可交付 0 / 2',
   ]);
-  await lab.screenshot({ path: testInfo.outputPath('multiplex-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('multiplex-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('combobox', { name: '承载协议' }).selectOption('h3');
   for (let i = 0; i < 6; i++) await lab.getByRole('button', { name: '推进一个到达事件' }).click();
   await expect(lab.locator('.network-cell strong')).toHaveText([
@@ -105,7 +132,10 @@ test('多路复用：TCP 缺口、QUIC 独立流与压缩依赖', async ({ page 
     '可交付 2 / 2',
   ]);
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('multiplex-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('multiplex-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('checkbox').check();
   for (let i = 0; i < 6; i++) await lab.getByRole('button', { name: '推进一个到达事件' }).click();
   await expect(lab.locator('.network-cell strong')).toHaveText([
@@ -128,13 +158,19 @@ test('TLS：信任、名字、有效期与协议独立校验', async ({ page }, 
   const lab = page.getByRole('region', { name: 'TLS 身份与协议协商实验' });
   for (let i = 0; i < 4; i++) await lab.getByRole('button', { name: '推进握手' }).click();
   await expect(lab.getByRole('status')).toContainText('握手完成');
-  await lab.screenshot({ path: testInfo.outputPath('tls-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('tls-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('checkbox', { name: '服务名字匹配' }).uncheck();
   for (let i = 0; i < 3; i++) await lab.getByRole('button', { name: '推进握手' }).click();
   await expect(lab.getByRole('status')).toContainText('服务名字不匹配');
   await expect(lab.getByRole('button', { name: '推进握手' })).toBeDisabled();
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('tls-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('tls-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('checkbox', { name: '存在共同 ALPN' }).uncheck();
   for (let i = 0; i < 2; i++) await lab.getByRole('button', { name: '推进握手' }).click();
   await expect(lab.getByRole('status')).toContainText('没有共同 ALPN');
@@ -151,7 +187,10 @@ test('描述符：dup、继承与重新 open 的偏移', async ({ page }, testIn
   await lab.getByRole('button', { name: '读取两字节' }).click();
   await expect(lab.getByRole('status')).toContainText('读到 CD');
   await lab.getByRole('button', { name: '创建子进程视图' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('process-light.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('process-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('button', { name: '关闭所选描述符' }).click();
   await lab.getByRole('combobox', { name: '操作进程' }).selectOption('子进程');
   await lab.getByRole('button', { name: '读取两字节' }).click();
@@ -161,7 +200,10 @@ test('描述符：dup、继承与重新 open 的偏移', async ({ page }, testIn
   await lab.getByRole('button', { name: '读取两字节' }).click();
   await expect(lab.getByRole('status')).toContainText('读到 AB');
   await page.getByRole('button', { name: '切换暗色主题' }).click();
-  await lab.screenshot({ path: testInfo.outputPath('process-dark.png') });
+  await lab.screenshot({
+    path: testInfo.outputPath('process-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
   await lab.getByRole('button', { name: '重置描述符' }).click();
   await expect(lab.locator('.live-label')).toHaveText('1 个引用');
 });
@@ -266,4 +308,53 @@ test('请求预算：提交后超时、响应头范围与连接复用', async ({
   await lab.getByRole('combobox', { name: '预算毫秒' }).selectOption('100');
   await lab.getByRole('button', { name: '运行到本次结束' }).click();
   await expect(lab.locator('.network-cell strong').first()).toHaveText('本次尚未发出请求');
+});
+
+test('第三章入口、搜索、首尾导航与笔记隔离', async ({ page, isMobile }) => {
+  const { lessons } = await import('../src/content/lessons');
+  const chapter = lessons.filter((l) => l.moduleId === 'network');
+  await page.goto('/roadmap#network');
+  const module = page.locator('#network');
+  await expect(module).toContainText('本章已发布');
+  await expect(module.getByRole('link')).toHaveCount(10);
+  for (const lesson of chapter)
+    await expect(module.locator(`a[href="${lesson.path}"]`)).toHaveCount(1);
+  await expect(page.locator('#postgres')).toContainText('规划中');
+  await expect(page.locator('#postgres').getByRole('link')).toHaveCount(0);
+  await page.getByRole('button', { name: '搜索知识点', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '搜索知识点' });
+  await dialog.getByRole('textbox').fill('网络与操作系统');
+  await expect(dialog.locator('.search-results')).not.toContainText('规划中');
+  await dialog.getByRole('textbox').fill('QPACK');
+  await dialog.getByRole('button', { name: /让一个包丢失，比较三条流/ }).click();
+  await expect(page).toHaveURL(/network-multiplex#lab$/);
+  await page.goto('/learn/network-dns');
+  if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
+  await expect(page.locator('.curriculum-nav .current-lesson')).toHaveCount(chapter.length);
+  await page.locator('.curriculum-nav .current-lesson[href="/learn/network-dns"]').click();
+  const nav = page.getByRole('navigation', { name: '章节翻页' });
+  await expect(nav.getByRole('link', { name: /上一节/ })).toHaveAttribute(
+    'href',
+    '/learn/concurrency-diagnostics',
+  );
+  await expect(nav.getByRole('link', { name: /下一节/ })).toHaveAttribute(
+    'href',
+    '/learn/network-tcp',
+  );
+  await page.goto('/learn/network-diagnosis');
+  await expect(nav.getByRole('link')).toHaveCount(1);
+  await expect(nav.getByRole('link', { name: /上一节/ })).toHaveAttribute(
+    'href',
+    '/learn/network-netpoll',
+  );
+  await page.getByRole('link', { name: '记下我的理解', exact: true }).click();
+  await expect(page).toHaveURL(/notes\?lesson=network-diagnosis$/);
+  const notes = page.locator('.notes-editor');
+  await notes.fill('超时不撤销远端提交，结果未知需要查询或幂等契约。');
+  await page.getByRole('combobox', { name: '选择笔记章节' }).selectOption('network-dns');
+  await expect(notes).toHaveValue('');
+  await notes.fill('TTL 过期不会迁移已有连接。');
+  await page.getByRole('combobox', { name: '选择笔记章节' }).selectOption('network-diagnosis');
+  await page.reload();
+  await expect(notes).toHaveValue('超时不撤销远端提交，结果未知需要查询或幂等契约。');
 });

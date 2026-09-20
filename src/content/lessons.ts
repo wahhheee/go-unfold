@@ -23,25 +23,15 @@ import { groupsLesson } from './concurrency/groups';
 import { poolLesson } from './concurrency/pool';
 import { rateLesson } from './concurrency/rate';
 import { diagnosticsLesson } from './concurrency/diagnostics';
-
 import { dnsLesson } from './network/dns';
-
 import { tcpLesson } from './network/tcp';
-
 import { flowLesson } from './network/flow';
-
 import { httpLesson } from './network/http';
-
 import { multiplexLesson } from './network/multiplex';
-
 import { tlsLesson } from './network/tls';
-
 import { processLesson } from './network/process';
-
 import { networkMemoryLesson } from './network/memory';
-
 import { netpollLesson } from './network/netpoll';
-
 import { requestDiagnosisLesson } from './network/diagnosis';
 
 export type LessonDefinition = {

@@ -39,8 +39,10 @@ func TestFraming(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := ReadFrame(bytes.NewReader(frame("OK")[:5])); !errors.Is(err, io.ErrUnexpectedEOF) {
-		t.Fatal(err)
+	for cut := 1; cut < len(frame("OK")); cut++ {
+		if _, err := ReadFrame(bytes.NewReader(frame("OK")[:cut])); !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Fatalf("截断在字节 %d：%v", cut, err)
+		}
 	}
 	if _, err := ReadFrame(bytes.NewReader([]byte{0xff, 0xff, 0xff, 0xff})); err == nil {
 		t.Fatal("必须在分配前拒绝超大长度")

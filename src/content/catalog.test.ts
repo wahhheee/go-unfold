@@ -32,3 +32,10 @@ it('每个题目都归属已发布章节，答案与逐项解释对应有效选�
     expect(question.takeaway.trim().length).toBeGreaterThan(0);
   }
 });
+
+it('全局练习按课程顺序排列，新增章节不会插到序章之前', () => {
+  const positions = questions.map((question) =>
+    lessons.findIndex((lesson) => lesson.id === question.lessonId),
+  );
+  expect(positions.every((position, i) => i === 0 || position >= positions[i - 1])).toBe(true);
+});

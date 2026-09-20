@@ -12,7 +12,7 @@
 
 ## 编辑现有正文
 
-正文位于 `src/content/lessons/`，使用 Markdown 与 React 组件混排。第一章的元信息、题目和追问按节放在 `src/content/go/*.ts`，第二章放在 `src/content/concurrency/*.ts`；序章元信息位于 `curriculum.ts`。顶层小节有稳定的 `id`，与该节元信息中的 `sections` 对应；修改标题时尽量保留 ID，避免破坏收藏和搜索锚点。
+正文位于 `src/content/lessons/`，使用 Markdown 与 React 组件混排。第一章的元信息、题目和追问按节放在 `src/content/go/*.ts`，第二章放在 `src/content/concurrency/*.ts`，第三章放在 `src/content/network/*.ts`；序章元信息位于 `curriculum.ts`。顶层小节有稳定的 `id`，与该节元信息中的 `sections` 对应；修改标题时尽量保留 ID，避免破坏收藏和搜索锚点。
 
 ```mdx
 <section id="stable-section-id" className="lesson-section">
@@ -69,6 +69,8 @@
 固定的 Go 教学案例放在 `examples/go/`，通过本地 `go test` 验证；不需要为固定测试开放 Web 执行接口。输出、反例、编译失败条件与性能结论应有相应证据，基准必须记录环境和结果的使用方式。
 
 并发案例用通道屏障、明确完成信号或适用的 synctest 控制关键路径，不依赖 Sleep 猜测任务顺序。验证业务结果和生命周期，而非只检查 race 没有报告。有意数据竞争、死锁或泄漏需要带超时的隔离子进程；断言诊断证据后回收样本。第三方并发库固定模块版本，升级后同时复核正文、模型边界与真实测试。
+
+网络与系统案例还需写清协议规范、Go 公开契约与 Linux 实现的区别。网络只绑定回环和临时端口；证书临时生成；文件操作使用临时目录。等待应由事件同步并设置失败上限，确认测试任务退出。可见性不等于持久性，传输成功不等于业务提交；这些边界要同时出现在正文、模型和测试里。
 
 ## 发布新章节
 
