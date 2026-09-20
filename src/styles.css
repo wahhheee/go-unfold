@@ -4128,3 +4128,35 @@ strong {
     font-size: 14px;
   }
 }
+/* 请求预算用逐段进度展示时长；状态文字不依赖颜色。 */
+.request-timeline {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.request-phase > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  line-height: 1.7;
+}
+.request-phase strong {
+  font-size: 13px;
+}
+.request-phase span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.request-phase-track {
+  height: 8px;
+  border-radius: 5px;
+  background: var(--border);
+  margin-top: 7px;
+  overflow: hidden;
+}
+.request-phase-track > span {
+  height: 100%;
+  display: block;
+  background: var(--accent);
+}

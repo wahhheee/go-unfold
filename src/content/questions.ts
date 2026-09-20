@@ -38,6 +38,8 @@ import { networkMemoryQuestions } from './network/memory';
 
 import { netpollQuestions } from './network/netpoll';
 
+import { requestDiagnosisQuestions } from './network/diagnosis';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -59,6 +61,7 @@ export const questions: Question[] = [
   ...processQuestions,
   ...networkMemoryQuestions,
   ...netpollQuestions,
+  ...requestDiagnosisQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',

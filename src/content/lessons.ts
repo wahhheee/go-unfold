@@ -42,6 +42,8 @@ import { networkMemoryLesson } from './network/memory';
 
 import { netpollLesson } from './network/netpoll';
 
+import { requestDiagnosisLesson } from './network/diagnosis';
+
 export type LessonDefinition = {
   id: string;
   moduleId: string;
@@ -109,6 +111,7 @@ export const lessons: LessonDefinition[] = [
   processLesson,
   networkMemoryLesson,
   netpollLesson,
+  requestDiagnosisLesson,
 ];
 
 export function findLesson(id: string) {

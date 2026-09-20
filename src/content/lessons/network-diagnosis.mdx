@@ -1,0 +1,132 @@
+import { requestDiagnosisFollowups } from '../network/diagnosis';
+
+<section id="evidence" className="lesson-section">
+<div className="section-kicker">01 / 慢不是一个位置</div>
+
+## 一条“请求超时”日志，还缺了发生在哪里
+
+用户点击提交，几秒后看见超时。可能是 DNS 没完成，可能是在等连接额度，也可能服务端已经提交，只是响应没回来。前九节提供了不同层的解释，现在要把它们按同一个请求串起来。
+
+先记录请求标识、开始时间、整体预算、连接是否复用、各阶段事件和最终错误。再看这次实际走了哪些阶段：等连接、解析、拨号、TLS、发送、等响应头、读响应体。实际阶段可能重叠、重复或缺席，不要强行塞进每次都完整出现的串行模板。
+
+Go 的 httptrace 提供 DNS、连接、TLS、请求写出、首响应字节等钩子。GotConn 的 Reused 帮助区分新连接与复用；GotFirstResponseByte 是首个响应字节，不是整个 Body 完成。完整 Body 耗时需要自己在消费处记录。钩子可能并发调用，部分还可能在请求失败之后到达，记录容器需要同步。
+
+<Quiz id="net-diag-reuse" />
+
+把客户端观测与服务端的入口排队、处理、下游调用和提交事件关联。若连接池等待长，就查额度和未收尾 Body；若处理长，再查 CPU、锁、磁盘和下游。CPU profile 不擅长独自解释睡着等待的时间，第二章的 trace、阻塞画像和 goroutine 证据要一起使用。
+
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">02 / 字段名相似，计时区间不同</div>
+
+## 超时要画在时间线上
+
+默认场景把响应体变慢，总预算是 500 ms。先逐步推进，看“服务端已提交”出现在哪一步，再运行到结束。客户端超时时，服务器那一栏变回未提交了吗？把预算范围改成“仅等待响应头”，重放一次，观察原本较慢的响应体是否还受这份预算约束。
+
+<RequestBudgetLab />
+
+<Quiz id="net-diag-body" />
+
+这些配置回答不同问题：
+
+| 配置                   | 主要约束                                   | 不应误认为                         |
+| ---------------------- | ------------------------------------------ | ---------------------------------- |
+| 请求 Context           | 请求的连接获取、发送、读取响应等生命周期   | 自动撤销远端已提交副作用           |
+| http.Client.Timeout    | 连接、重定向、响应体消费在内的整个调用周期 | Do 返回后计时已停止                |
+| DialContext 的 Context | 连接建立过程                               | 连接建立后所有 Read / Write 的期限 |
+| TLSHandshakeTimeout    | TLS 握手阶段                               | 整个请求时长                       |
+| ResponseHeaderTimeout  | 请求写完后等待响应头                       | 响应体读取期限                     |
+
+`Client.Timeout` 为零表示没有这层总上限，请求 Context 仍可能有自己的期限。外层 deadline 应向下传递；每次重试重新从 Background 建一份完整预算，会悄悄延长用户原本的等待上限。
+
+下面是一段有限大小响应的读取模式。`client` 是可复用的已配置客户端，`parent` 来自上游请求；超时数字只用于示例，真实值来自延迟目标与测量。
+
+```go
+ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+defer cancel()
+req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+if err != nil {
+    return nil, err
+}
+resp, err := client.Do(req)
+if err != nil {
+    return nil, err
+}
+defer resp.Body.Close()
+const maxBody = 1 << 20
+body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+if err != nil {
+    return nil, err
+}
+if len(body) > maxBody {
+    return nil, errors.New("响应体超过上限")
+}
+if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+    return nil, fmt.Errorf("HTTP 状态 %d", resp.StatusCode)
+}
+return body, nil
+```
+
+这里把读取预算、大小上限、状态码与关闭责任都写出来。超限时停止继续消费，不为追求连接复用而无限读完不可信的响应。HTTP 状态正常也不替代业务层结果校验。
+
+</section>
+
+<section id="retry" className="lesson-section">
+<div className="section-kicker">03 / 等待结束，不等于业务失败</div>
+
+## 结果未知需要自己的处理路径
+
+客户端没有等到结果，服务端可能尚未开始、执行到一半、已经提交，也可能响应正在路上。Context 取消和连接断开不是跨网络回滚协议。即使服务端最终观察到取消，也不能倒转已经持久化的提交。
+
+<Quiz id="net-diag-unknown" />
+
+重试之前，确认操作语义是否允许重复、请求 Body 是否能重放、是否还有剩余预算、错误是否适合重试。对有副作用的业务，幂等键需要与业务提交具备明确的原子去重和结果查询契约；只加一个请求头、不在服务端实现它，并不能防止重复扣款。
+
+保持同一业务操作的键，明确重复键但参数不同如何处理、并发重复如何等待、结果保存多久、跨系统副作用如何协调。退避、抖动、次数上限与并发额度解决故障时的压力放大；它们不解决重复副作用本身。HTTP 方法的幂等语义也不保证每次响应内容完全相同。
+
+固定样本 `examples/go/requestlife/` 让本地服务先记录提交，再等待客户端取消。测试确认客户端得到取消错误，但提交计数仍为一。它故意把两方证据放在一起，证明“取消后等于没执行”这个推断不成立。
+
+</section>
+
+<section id="shutdown" className="lesson-section">
+<div className="section-kicker">04 / 停止入口，再等待存量</div>
+
+## 优雅退出是一个要被等待的流程
+
+接到退出信号后，先停止对外接入新工作，再给已有请求一个有限的完成窗口。实际部署还需考虑负载均衡摘流、服务发现传播与平台终止期限，不能把某个固定等待秒数当成通用答案。
+
+Go 的 Server.Shutdown 会关闭监听和空闲连接，等待活跃连接回到可收尾状态。调用期间 Serve 很快返回 ErrServerClosed；主流程必须继续等待 Shutdown，不能因为 Serve 返回就立刻结束进程。Shutdown 的 Context 到期会返回错误，不会自动替你把所有存量业务都杀掉。
+
+<Quiz id="net-diag-shutdown" />
+
+超出排空预算后，应用需执行约定的取消、强制关闭或故障记录。被 hijack 的连接（如某些 WebSocket 实现）和后台任务需要单独追踪；RegisterOnShutdown 的回调也不是自动等待所有自管工作结束的屏障。停止接收、通知取消、等待退出、资源回收，要有明确顺序。
+
+固定测试还验证了两件事：连续请求的 httptrace 显示连接复用；在活跃 handler 暂停时启动 Shutdown，Serve 已结束但 Shutdown 仍未完成，释放 handler 后排空才结束。全程通过事件同步，使用期限兜底，不用 Sleep 猜测顺序。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 把指标还原成发生过的事</div>
+
+## 一次测量只能回答它实际观察到的问题
+
+<Followups items={requestDiagnosisFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 回望整条链路</div>
+
+## 从找地址，到确认结果与完成退出
+
+现在可以沿一条请求回答：DNS 缓存与现有连接如何决定去向；TCP 如何承载字节并受到窗口约束；HTTP 如何定界和复用；TLS 如何验证身份；进程与 fd 如何持有资源；虚拟内存如何映射；netpoll 如何组织等待；最后怎样用证据定位超时、安排重试与退出。
+
+试着用这条顺序解释“请求慢、内存涨、线程不多、偶尔重复提交”的场景。它可能包含几个独立问题；不要用一个热门名词把全部现象包起来。先提出可验证的解释，改变一个条件，再观察证据是否支持它。
+
+“一次请求既有传输状态，也有业务状态。预算限制等待，协议说明交付，业务契约确定提交与幂等；观测要区分层次，退出要等待资源真正收尾。”
+
+核验于 **2026-09-20**，Go API 与固定证据基于 **Go 1.27.1 / Linux**。实验时间用于推理，不是性能承诺。第三章的完整交付与核验记录见项目文档；后续数据库章节仍以实际注册表为准。
+
+<SourceList />
+<LessonFinish />
+</section>

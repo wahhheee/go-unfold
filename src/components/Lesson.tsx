@@ -100,6 +100,9 @@ const MemoryMapLab = lazy(() =>
 const ReadinessLab = lazy(() =>
   import('./ReadinessLab').then((m) => ({ default: m.ReadinessLab })),
 );
+const RequestBudgetLab = lazy(() =>
+  import('./RequestBudgetLab').then((m) => ({ default: m.RequestBudgetLab })),
+);
 const DescriptorLab = lazy(() =>
   import('./DescriptorLab').then((module) => ({ default: module.DescriptorLab })),
 );
@@ -204,6 +207,7 @@ const mdxComponents = {
   DescriptorLab,
   MemoryMapLab,
   ReadinessLab,
+  RequestBudgetLab,
   Callout,
   Quiz,
   ValueCopyLab,

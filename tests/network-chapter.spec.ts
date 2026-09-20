@@ -234,3 +234,36 @@ test('就绪：ET 残留数据、LT 重复通知与 EOF', async ({ page }, testI
   await lab.getByRole('button', { name: '重置就绪实验' }).click();
   await expect(lab.locator('.network-cell strong')).toHaveText(['0 字节', '尚未取事件', '0 字节']);
 });
+
+test('请求预算：提交后超时、响应头范围与连接复用', async ({ page }, testInfo) => {
+  await page.goto('/learn/network-diagnosis#lab');
+  const lab = page.getByRole('region', { name: '请求阶段、预算与结果未知实验' });
+  await lab.getByRole('button', { name: '运行到本次结束' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText(['结果未知', '已提交', '500 ms']);
+  await expect(lab.getByRole('button', { name: '推进到下一事件' })).toBeDisabled();
+  await lab.screenshot({
+    path: testInfo.outputPath('diagnosis-light.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
+  await lab.getByRole('combobox', { name: '预算范围' }).selectOption('headers');
+  await expect(lab.locator('.live-label')).toHaveText('0 ms');
+  await lab.getByRole('button', { name: '运行到本次结束' }).click();
+  await expect(lab.locator('.network-cell strong')).toHaveText([
+    '收到完整成功结果',
+    '已提交',
+    '响应头后无总上限',
+  ]);
+  await lab.getByRole('checkbox').check();
+  await lab.getByRole('button', { name: '运行到本次结束' }).click();
+  await expect(lab.locator('.request-timeline')).toContainText('复用时跳过');
+  await expect(lab.locator('.live-label')).toHaveText('700 ms');
+  await page.getByRole('button', { name: '切换暗色主题' }).click();
+  await lab.screenshot({
+    path: testInfo.outputPath('diagnosis-dark.png'),
+    style: '.topbar,.skip-link{visibility:hidden}',
+  });
+  await lab.getByRole('button', { name: '恢复默认预算' }).click();
+  await lab.getByRole('combobox', { name: '预算毫秒' }).selectOption('100');
+  await lab.getByRole('button', { name: '运行到本次结束' }).click();
+  await expect(lab.locator('.network-cell strong').first()).toHaveText('本次尚未发出请求');
+});
