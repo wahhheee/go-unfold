@@ -4013,3 +4013,114 @@ strong {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* 网络章节：状态卡、数据路径与可读的字节/页面网格。 */
+.network-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+.network-cell {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  min-width: 0;
+}
+.network-cell.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.network-cell > span,
+.network-cell small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.network-cell strong {
+  display: block;
+  font-size: 16px;
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.network-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+.network-route span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.network-caption {
+  font-size: 12px;
+  color: var(--muted);
+}
+.network-lab .concept-controls {
+  flex-wrap: wrap;
+}
+.network-lab .concept-controls label {
+  min-width: 0;
+}
+.network-lab .concept-controls select {
+  max-width: 100%;
+}
+.network-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 14px 0;
+}
+.network-token {
+  min-width: 40px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.network-token.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.network-token.is-blocked {
+  border-style: dashed;
+  opacity: 0.8;
+}
+.network-lane {
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.network-lane h4 {
+  margin: 0;
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .network-cells {
+    grid-template-columns: 1fr;
+  }
+  .network-cell {
+    padding: 12px;
+  }
+  .network-lab .lab-header {
+    align-items: flex-start;
+  }
+  .network-lab .lab-header strong {
+    font-size: 14px;
+  }
+}

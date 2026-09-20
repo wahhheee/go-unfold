@@ -24,6 +24,8 @@ import { poolLesson } from './concurrency/pool';
 import { rateLesson } from './concurrency/rate';
 import { diagnosticsLesson } from './concurrency/diagnostics';
 
+import { dnsLesson } from './network/dns';
+
 export type LessonDefinition = {
   id: string;
   moduleId: string;
@@ -82,6 +84,7 @@ export const lessons: LessonDefinition[] = [
   poolLesson,
   rateLesson,
   diagnosticsLesson,
+  dnsLesson,
 ];
 
 export function findLesson(id: string) {

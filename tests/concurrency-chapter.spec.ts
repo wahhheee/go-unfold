@@ -9,8 +9,9 @@ test('第二章整章发布、搜索、首尾翻页与笔记归属', async ({ pa
   await expect(module.getByRole('link')).toHaveCount(chapter.length);
   for (const lesson of chapter)
     await expect(module.locator(`a[href="${lesson.path}"]`)).toHaveCount(1);
-  await expect(page.locator('#network')).toContainText('规划中');
-  await expect(page.locator('#network').getByRole('link')).toHaveCount(0);
+  await expect(page.locator('#network').getByRole('link')).toHaveCount(
+    lessons.filter((item) => item.moduleId === 'network').length,
+  );
   await page.getByRole('button', { name: '搜索知识点', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '搜索知识点' });
   await dialog.getByRole('textbox').fill('并发编程');
@@ -21,8 +22,14 @@ test('第二章整章发布、搜索、首尾翻页与笔记归属', async ({ pa
   await expect(page).toHaveURL(/concurrency-diagnostics#lifetime$/);
   await expect(page.locator('#lifetime')).toBeInViewport();
   const pagination = page.getByRole('navigation', { name: '章节翻页' });
-  await expect(pagination.getByRole('link')).toHaveCount(1);
-  await expect(pagination.getByRole('link')).toHaveAttribute('href', '/learn/concurrency-rate');
+  await expect(pagination.getByRole('link', { name: /上一节/ })).toHaveAttribute(
+    'href',
+    '/learn/concurrency-rate',
+  );
+  await expect(pagination.getByRole('link', { name: /下一节/ })).toHaveAttribute(
+    'href',
+    '/learn/network-dns',
+  );
   if (isMobile) await page.getByRole('button', { name: '打开导航' }).click();
   await expect(page.locator('.curriculum-nav .current-lesson')).toHaveCount(chapter.length);
   await page.locator('.curriculum-nav .current-lesson[href="/learn/concurrency-memory"]').click();

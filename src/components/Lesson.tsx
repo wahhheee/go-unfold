@@ -76,6 +76,8 @@ const InterleavingLab = lazy(() =>
   import('./InterleavingLab').then((module) => ({ default: module.InterleavingLab })),
 );
 
+const DnsLab = lazy(() => import('./DnsLab').then((module) => ({ default: module.DnsLab })));
+
 function DataTable(props: ComponentPropsWithoutRef<'table'>) {
   return (
     <div className="table-scroll" tabIndex={0} role="region" aria-label="知识对照表">
@@ -167,6 +169,7 @@ function LessonFinish() {
 }
 
 const mdxComponents = {
+  DnsLab,
   Callout,
   Quiz,
   ValueCopyLab,

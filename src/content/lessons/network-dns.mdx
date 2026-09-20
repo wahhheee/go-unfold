@@ -1,0 +1,100 @@
+import { dnsFollowups } from '../network/dns';
+
+<section id="layers" className="lesson-section">
+<div className="section-kicker">01 / 先跟住一个请求</div>
+
+## 同一个名字，为什么还能连到旧机器？
+
+你把订单服务从旧机器迁到了新机器，改好 DNS，刷新页面，一部分请求却仍出现在旧机器上。先别急着清缓存。我们要问两件事：**这次请求有没有重新找地址？有没有重新建连接？**
+
+把 `https://api.example.test/orders/42` 拆开：域名用于表达服务名字；IP 地址帮助网络把数据送到主机；端口帮助主机区分传输端点；HTTP 的方法与路径告诉服务做什么。HTTPS 还需要通过 TLS 校验对端并保护传输。它们合作完成请求，但任何一层的成功都不能代替下一层。
+
+| 这一层回答什么   | 例子                  | 成功仍不能证明什么 |
+| ---------------- | --------------------- | ------------------ |
+| 名字对应哪些记录 | DNS 返回 A / AAAA     | 目标服务健康       |
+| 数据怎样到对端   | IP 路由与链路转发     | TCP 已建立         |
+| 哪条传输通道     | TCP 的地址与端口组合  | 服务已经处理订单   |
+| 请求是什么意思   | HTTP 方法、路径、响应 | 业务结果符合预期   |
+
+跨路由转发时，链路层的下一跳信息会变化；不要把一个远端 IP 想成“全程同一个 MAC 地址”。协议分层的价值是帮助缩小故障范围，而不是背诵几层名字。
+
+<Quiz id="net-dns-layer" />
+</section>
+
+<section id="resolution" className="lesson-section">
+<div className="section-kicker">02 / 找答案的人与拥有答案的人</div>
+
+## 应用通常不亲自从根查到叶子
+
+应用调用解析接口，把问题交给配置好的解析服务。递归解析器承诺替客户端继续查；权威服务器则对自己负责的区域提供记录。缓存未命中时，递归解析器可以沿根、顶级域、目标区域的委派线索找到答案；已有中间缓存时，也可以跳过前面几步。
+
+A 记录给出 IPv4 地址，AAAA 给出 IPv6 地址；CNAME 表示另一个名字，后续仍需解析。一个名字可能有多个地址，一个地址也能承载多个域名。HTTP Host 或对应版本的 authority，以及 TLS 的服务器名字，仍有各自的作用。
+
+**TTL 是一份缓存记录的可用时长。** 解析器收到带剩余 TTL 的记录后开始计时；一次命中不会自然恢复成最初的 TTL。修改权威记录，也不会主动把所有旧缓存擦掉。某些部署有预取、过期应答等扩展策略，因此排障应看实际解析器行为。
+
+<Quiz id="net-dns-recursion" />
+
+还要区分“这个名字不存在”（NXDOMAIN）、“这个名字没有所问类型的记录”（NODATA）与查询超时。前两类否定结果可按负缓存规则保存。新建记录后仍短暂报不存在，不一定是创建失败；应查看否定响应与 SOA 提供的缓存依据。
+
+<Quiz id="net-dns-negative" />
+</section>
+
+<section id="lab" className="lesson-section">
+<div className="section-kicker">03 / 先预测，再改变一项条件</div>
+
+## 缓存与连接，是两只不同的钟
+
+按这条路线做一次实验：发起请求 → 切换权威地址 → 推进到 30 秒 → 再发起请求。先猜目的地址，然后观察路径里有没有 DNS。最后关闭空闲连接，再请求一次，对比地址与查询次数。
+
+<DnsLab />
+
+再重置一次：只推进 10 秒就关闭连接。新连接仍可使用未到期的旧缓存。现在你已经能区分两种“流量没切过去”：一次被连接复用解释，一次被解析缓存解释。
+
+<Quiz id="net-dns-ttl" />
+</section>
+
+<section id="go" className="lesson-section">
+<div className="section-kicker">04 / 回到调用链</div>
+
+## 用 Context 限制等待，用事件解释耗时
+
+Go 的解析路径可能采用纯 Go 解析器，也可能调用系统解析设施；选择受平台、构建和配置影响。`net.Resolver` 不承诺提供通用的进程内 TTL 缓存。不要把实验里的递归缓存误认为每个 Go 进程自带的功能。
+
+下面是一次独立解析片段，调用方仍需处理错误。它没有发出 HTTP 请求，也没有把解析结果自动交给某个已有的 Transport。
+
+```go
+ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+defer cancel()
+addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", "api.example.test")
+if err != nil {
+    return fmt.Errorf("resolve api: %w", err)
+}
+// addresses 是候选地址，不是服务健康证明。
+```
+
+真实 HTTP 排障更适合在请求上接入 `httptrace.ClientTrace`，观察 DNS、连接获取和复用事件。如果请求拿到已有连接，DNS 钩子可能根本不会出现；这不是漏记录。钩子可能由不同 goroutine 调用，共享记录要同步保护。第三章最后一节会把这些事件放进完整预算里。
+
+本节固定 Go 样本在 `examples/go/resolution/`：利用受控的解析传输验证 A 记录查询与取消；它不访问公网，也不验证操作系统的所有解析模式。运行 `go test ./resolution` 时请在 `examples/go` 下执行。
+
+</section>
+
+<section id="followups" className="lesson-section">
+<div className="section-kicker">05 / 沿失败的前提继续问</div>
+
+## 从“查到了”走到“为什么走这条路”
+
+<Followups items={dnsFollowups} />
+</section>
+
+<section id="sources" className="lesson-section">
+<div className="section-kicker">06 / 带走一条判断路线</div>
+
+## 先问有没有解析，再问有没有新建连接
+
+面试表达可以从现象开始：“DNS 修改后旧流量仍存在，我会先检查连接是否复用，再看缓存的剩余 TTL、否定缓存与解析路径。TTL 限制缓存使用，不会迁移已有连接；变更还需要连接生命周期和在途请求的处理。”
+
+核验于 **2026-09-20**，Go 样本基线 **Go 1.27.1 / linux / amd64**。DNS 概念依据 RFC；系统解析选择依环境而变。实验只解释受限事件序列，不承诺真实切流时间。
+
+<SourceList />
+<LessonFinish />
+</section>

@@ -20,6 +20,8 @@ import { poolQuestions } from './concurrency/pool';
 import { rateQuestions } from './concurrency/rate';
 import { diagnosticsQuestions } from './concurrency/diagnostics';
 
+import { dnsQuestions } from './network/dns';
+
 export type Question = {
   id: string;
   lessonId: string;
@@ -32,6 +34,7 @@ export type Question = {
 };
 
 export const questions: Question[] = [
+  ...dnsQuestions,
   {
     id: 'atomic-acquire',
     lessonId: 'preface',
