@@ -31,26 +31,26 @@
   color-scheme: light;
 }
 :root[data-theme='dark'] {
-  --bg: #141918;
-  --surface: #1a211e;
-  --sidebar: #171e1b;
-  --soft: #202924;
-  --text: #d2ddd6;
-  --heading: #edf3ee;
-  --muted: #8d9b92;
-  --secondary: #acbdb1;
-  --border: #303b34;
-  --accent: #80caa6;
-  --accent-strong: #a3dbbe;
-  --accent-soft: #22392d;
-  --mint: #345d46;
-  --blue: #8dadd2;
-  --blue-soft: #23303c;
-  --amber: #d0ab65;
-  --amber-soft: #352f22;
-  --danger: #e59387;
-  --danger-soft: #3b2926;
-  --code-bg: #1b231f;
+  --bg: #18191b;
+  --surface: #202226;
+  --sidebar: #1c1d20;
+  --soft: #292c31;
+  --text: #e3e5e8;
+  --heading: #f3f4f5;
+  --muted: #adb4be;
+  --secondary: #c6cbd3;
+  --border: #41454d;
+  --accent: #86d9ca;
+  --accent-strong: #b0eee1;
+  --accent-soft: #203b37;
+  --mint: #416d64;
+  --blue: #a6c8ff;
+  --blue-soft: #253247;
+  --amber: #edca83;
+  --amber-soft: #3b3222;
+  --danger: #ffaaa4;
+  --danger-soft: #412a2c;
+  --code-bg: #1e2024;
   color: var(--text);
   background: var(--bg);
   color-scheme: dark;
@@ -115,6 +115,10 @@ a {
     border-color 0.16s ease;
 }
 ::selection {
+  background: var(--mint);
+}
+[data-theme='dark'] ::selection {
+  color: var(--heading);
   background: var(--mint);
 }
 svg {
@@ -187,7 +191,7 @@ strong {
   border-color: var(--accent-strong);
 }
 [data-theme='dark'] .button {
-  color: #16281d;
+  color: var(--bg);
 }
 .button.secondary {
   background: var(--surface);
@@ -1044,6 +1048,9 @@ strong {
   gap: 4px;
   font-size: 10px;
 }
+[data-theme='dark'] .code-toolbar {
+  background: var(--soft);
+}
 .code-toolbar .icon-button {
   width: 26px;
   height: 26px;
@@ -1562,6 +1569,9 @@ strong {
 }
 .lab-toggles input:checked + .toggle-track > span {
   transform: translateX(11px);
+}
+[data-theme='dark'] .lab-toggles input:checked + .toggle-track > span {
+  background: var(--bg);
 }
 .lab-toggles input:focus-visible + .toggle-track {
   outline: 2px solid var(--accent);
@@ -2690,6 +2700,9 @@ strong {
   color: var(--muted);
   opacity: 0.75;
 }
+[data-theme='dark'] .notes-editor::placeholder {
+  opacity: 1;
+}
 .notes-footer {
   display: flex;
   align-items: center;
@@ -2795,6 +2808,10 @@ strong {
 .search-dialog::backdrop {
   background: #131d1866;
   backdrop-filter: blur(3px);
+}
+[data-theme='dark'] .search-dialog::backdrop,
+[data-theme='dark'] .sidebar-backdrop {
+  background: #08090bb3;
 }
 .search-input-row {
   display: flex;

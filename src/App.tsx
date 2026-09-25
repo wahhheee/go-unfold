@@ -76,7 +76,7 @@ export function App() {
     }
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute('content', theme === 'dark' ? '#141918' : '#f8faf9');
+      ?.setAttribute('content', theme === 'dark' ? '#18191b' : '#f8faf9');
   }, [theme]);
   useEffect(() => {
     setMobileNav(false);

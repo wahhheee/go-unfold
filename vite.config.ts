@@ -11,7 +11,10 @@ import remarkGfm from 'remark-gfm';
 const highlighting: RehypeShikiOptions = {
   themes: { light: 'github-light', dark: 'github-dark-default' },
   defaultColor: false,
-  colorReplacements: { '#e36209': '#a64800' },
+  colorReplacements: {
+    '#e36209': '#a64800',
+    'github-dark-default': { '#8b949e': '#adb4be' },
+  },
   lazy: true,
   langs: [...Object.values(bundledLanguages), redisLanguage],
   transformers: [
